@@ -791,4 +791,97 @@ mod tests {
         };
         assert_eq!(sent_packet_buf, recv_packet_buf);
     }
+
+    /// Validates the PSK-slot approach: two tunnels with a shared 32-byte PSK
+    /// (simulating an ML-KEM-derived key) can complete a full handshake and
+    /// exchange data packets. This proves zero boringtun code changes are needed
+    /// for PSK-slot post-quantum protection.
+    #[test]
+    fn psk_slot_full_handshake_and_data() {
+        // Simulate an ML-KEM-derived 32-byte PSK (any 32 bytes work)
+        let psk: [u8; 32] = [
+            0xde, 0xad, 0xbe, 0xef, 0x01, 0x23, 0x45, 0x67,
+            0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98,
+            0x76, 0x54, 0x32, 0x10, 0xa0, 0xb1, 0xc2, 0xd3,
+            0xe4, 0xf5, 0x06, 0x17, 0x28, 0x39, 0x4a, 0x5b,
+        ];
+
+        let my_secret_key = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+        let my_public_key = x25519_dalek::PublicKey::from(&my_secret_key);
+        let my_idx = OsRng.next_u32();
+
+        let their_secret_key = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+        let their_public_key = x25519_dalek::PublicKey::from(&their_secret_key);
+        let their_idx = OsRng.next_u32();
+
+        // Both peers configured with the same PSK (3rd argument)
+        let mut my_tun = Tunn::new(my_secret_key, their_public_key, Some(psk), None, my_idx, None);
+        let mut their_tun = Tunn::new(their_secret_key, my_public_key, Some(psk), None, their_idx, None);
+
+        // Full handshake: init -> response -> keepalive -> done
+        let init = create_handshake_init(&mut my_tun);
+        let resp = create_handshake_response(&mut their_tun, &init);
+        let keepalive = parse_handshake_resp(&mut my_tun, &resp);
+        parse_keepalive(&mut their_tun, &keepalive);
+
+        // Exchange a data packet to prove the session works
+        let mut my_dst = [0u8; 1024];
+        let mut their_dst = [0u8; 1024];
+        let sent_packet_buf = create_ipv4_udp_packet();
+
+        let data = my_tun.encapsulate(&sent_packet_buf, &mut my_dst);
+        assert!(matches!(data, TunnResult::WriteToNetwork(_)));
+        let data = if let TunnResult::WriteToNetwork(sent) = data {
+            sent
+        } else {
+            unreachable!();
+        };
+
+        let data = their_tun.decapsulate(None, data, &mut their_dst);
+        assert!(matches!(data, TunnResult::WriteToTunnelV4(..)));
+        let recv_packet_buf = if let TunnResult::WriteToTunnelV4(recv, _addr) = data {
+            recv
+        } else {
+            unreachable!();
+        };
+        assert_eq!(sent_packet_buf, recv_packet_buf);
+    }
+
+    /// Verifies that mismatched PSKs cause handshake failure
+    #[test]
+    fn psk_slot_mismatched_psk_fails() {
+        let psk_a: [u8; 32] = [0xaa; 32];
+        let psk_b: [u8; 32] = [0xbb; 32];
+
+        let my_secret_key = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+        let my_public_key = x25519_dalek::PublicKey::from(&my_secret_key);
+        let my_idx = OsRng.next_u32();
+
+        let their_secret_key = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+        let their_public_key = x25519_dalek::PublicKey::from(&their_secret_key);
+        let their_idx = OsRng.next_u32();
+
+        // Peers configured with different PSKs
+        let mut my_tun = Tunn::new(my_secret_key, their_public_key, Some(psk_a), None, my_idx, None);
+        let mut their_tun = Tunn::new(their_secret_key, my_public_key, Some(psk_b), None, their_idx, None);
+
+        // Handshake init succeeds (PSK not yet involved)
+        let init = create_handshake_init(&mut my_tun);
+
+        // Response is generated (responder mixes their PSK)
+        let mut dst = vec![0u8; 2048];
+        let resp = their_tun.decapsulate(None, &init, &mut dst);
+        assert!(matches!(resp, TunnResult::WriteToNetwork(_)));
+        let resp = if let TunnResult::WriteToNetwork(sent) = resp {
+            sent.to_vec()
+        } else {
+            unreachable!();
+        };
+
+        // Initiator tries to process response with different PSK — should fail
+        let mut dst = vec![0u8; 2048];
+        let result = my_tun.decapsulate(None, &resp, &mut dst);
+        // Mismatched PSK causes AEAD decryption failure
+        assert!(matches!(result, TunnResult::Err(_)));
+    }
 }
