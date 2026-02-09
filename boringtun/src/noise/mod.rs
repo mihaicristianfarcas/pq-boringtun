@@ -807,7 +807,10 @@ mod tests {
             unreachable!();
         };
         let packet = Tunn::parse_incoming_packet(packet_data).unwrap();
+        #[cfg(not(feature = "pq"))]
         assert!(matches!(packet, Packet::HandshakeInit(_)));
+        #[cfg(feature = "pq")]
+        assert!(matches!(packet, Packet::PqHandshakeInit(_)));
     }
 
     #[test]
@@ -820,7 +823,10 @@ mod tests {
         let (mut my_tun, _their_tun) = create_two_tuns();
         let init = create_handshake_init(&mut my_tun);
         let packet = Tunn::parse_incoming_packet(&init).unwrap();
+        #[cfg(not(feature = "pq"))]
         assert!(matches!(packet, Packet::HandshakeInit(_)));
+        #[cfg(feature = "pq")]
+        assert!(matches!(packet, Packet::PqHandshakeInit(_)));
     }
 
     #[test]
@@ -829,7 +835,10 @@ mod tests {
         let init = create_handshake_init(&mut my_tun);
         let resp = create_handshake_response(&mut their_tun, &init);
         let packet = Tunn::parse_incoming_packet(&resp).unwrap();
+        #[cfg(not(feature = "pq"))]
         assert!(matches!(packet, Packet::HandshakeResponse(_)));
+        #[cfg(feature = "pq")]
+        assert!(matches!(packet, Packet::PqHandshakeResponse(_)));
     }
 
     #[test]
