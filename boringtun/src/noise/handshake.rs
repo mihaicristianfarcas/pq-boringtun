@@ -1109,7 +1109,7 @@ impl Handshake {
             .as_slice()
             .try_into()
             .expect("ML-KEM ek wrong size");
-        let ek = EncapsulationKey768::new(ek_array)
+        let ek = EncapsulationKey768::new(ek_array.into())
             .map_err(|_| WireGuardError::InvalidPacket)?;
         let mut rng = rand_core_pq::UnwrapErr(getrandom_pq::SysRng);
         let (ct, ss) = ek.encapsulate_with_rng(&mut rng);
@@ -1185,7 +1185,7 @@ impl Handshake {
             .try_into()
             .map_err(|_| WireGuardError::InvalidPacket)?;
         let ss = dk
-            .try_decapsulate(ct)
+            .try_decapsulate(ct.into())
             .map_err(|_| WireGuardError::MlKemDecapsulationFailed)?;
         // Mix ML-KEM shared secret into chaining key
         let temp = b2s_hmac(&chaining_key, ss.as_slice());
