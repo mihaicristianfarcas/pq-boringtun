@@ -1014,4 +1014,120 @@ mod tests {
         // Mismatched PSK causes AEAD decryption failure
         assert!(matches!(result, TunnResult::Err(_)));
     }
+
+    // PQ-specific tests
+
+    /// Verify PQ init is 1332 bytes and parses as PqHandshakeInit
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_handshake_init() {
+        let (mut my_tun, _their_tun) = create_two_tuns();
+        let init = create_handshake_init(&mut my_tun);
+        assert_eq!(init.len(), PQ_HANDSHAKE_INIT_SZ);
+        let packet = Tunn::parse_incoming_packet(&init).unwrap();
+        assert!(matches!(packet, Packet::PqHandshakeInit(_)));
+    }
+
+    /// Complete PQ handshake: init → response → keepalive → done
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_full_handshake() {
+        let (mut my_tun, mut their_tun) = create_two_tuns();
+        let init = create_handshake_init(&mut my_tun);
+        assert_eq!(init.len(), PQ_HANDSHAKE_INIT_SZ);
+
+        let resp = create_handshake_response(&mut their_tun, &init);
+        assert_eq!(resp.len(), PQ_HANDSHAKE_RESP_SZ);
+
+        let keepalive = parse_handshake_resp(&mut my_tun, &resp);
+        parse_keepalive(&mut their_tun, &keepalive);
+    }
+
+    /// End-to-end: PQ handshake then send/receive one IP packet
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_one_ip_packet() {
+        let (mut my_tun, mut their_tun) = create_two_tuns_and_handshake();
+        let mut my_dst = [0u8; 1024];
+        let mut their_dst = [0u8; 1024];
+
+        let sent_packet_buf = create_ipv4_udp_packet();
+
+        let data = my_tun.encapsulate(&sent_packet_buf, &mut my_dst);
+        assert!(matches!(data, TunnResult::WriteToNetwork(_)));
+        let data = if let TunnResult::WriteToNetwork(sent) = data {
+            sent
+        } else {
+            unreachable!();
+        };
+
+        let data = their_tun.decapsulate(None, data, &mut their_dst);
+        assert!(matches!(data, TunnResult::WriteToTunnelV4(..)));
+        let recv_packet_buf = if let TunnResult::WriteToTunnelV4(recv, _addr) = data {
+            recv
+        } else {
+            unreachable!();
+        };
+        assert_eq!(sent_packet_buf, recv_packet_buf);
+    }
+
+    /// Vanilla tunnel rejects PQ type 5 packet (parsed as InvalidPacket)
+    #[test]
+    #[cfg(not(feature = "pq"))]
+    fn vanilla_rejects_pq_packet() {
+        // A packet with type=5 and size=1332 should be rejected without pq feature
+        let mut packet = vec![0u8; 1332];
+        packet[0..4].copy_from_slice(&5u32.to_le_bytes());
+        let result = Tunn::parse_incoming_packet(&packet);
+        assert!(matches!(result, Err(WireGuardError::InvalidPacket)));
+    }
+
+    /// PQ handshake with PSK — both PQ and PSK active simultaneously
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_with_psk() {
+        let psk: [u8; 32] = [0x42; 32];
+
+        let my_secret_key = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+        let my_public_key = x25519_dalek::PublicKey::from(&my_secret_key);
+        let my_idx = OsRng.next_u32();
+
+        let their_secret_key = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+        let their_public_key = x25519_dalek::PublicKey::from(&their_secret_key);
+        let their_idx = OsRng.next_u32();
+
+        let mut my_tun =
+            Tunn::new(my_secret_key, their_public_key, Some(psk), None, my_idx, None);
+        let mut their_tun =
+            Tunn::new(their_secret_key, my_public_key, Some(psk), None, their_idx, None);
+
+        let init = create_handshake_init(&mut my_tun);
+        assert_eq!(init.len(), PQ_HANDSHAKE_INIT_SZ);
+        let resp = create_handshake_response(&mut their_tun, &init);
+        assert_eq!(resp.len(), PQ_HANDSHAKE_RESP_SZ);
+        let keepalive = parse_handshake_resp(&mut my_tun, &resp);
+        parse_keepalive(&mut their_tun, &keepalive);
+
+        // Verify data flows
+        let mut my_dst = [0u8; 1024];
+        let mut their_dst = [0u8; 1024];
+        let sent_packet_buf = create_ipv4_udp_packet();
+
+        let data = my_tun.encapsulate(&sent_packet_buf, &mut my_dst);
+        assert!(matches!(data, TunnResult::WriteToNetwork(_)));
+        let data = if let TunnResult::WriteToNetwork(sent) = data {
+            sent
+        } else {
+            unreachable!();
+        };
+
+        let data = their_tun.decapsulate(None, data, &mut their_dst);
+        assert!(matches!(data, TunnResult::WriteToTunnelV4(..)));
+        let recv_packet_buf = if let TunnResult::WriteToTunnelV4(recv, _addr) = data {
+            recv
+        } else {
+            unreachable!();
+        };
+        assert_eq!(sent_packet_buf, recv_packet_buf);
+    }
 }
