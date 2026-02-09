@@ -12,6 +12,11 @@ use blake2::digest::{FixedOutput, KeyInit};
 use blake2::{Blake2s256, Blake2sMac, Digest};
 use chacha20poly1305::XChaCha20Poly1305;
 use rand_core::OsRng;
+#[cfg(feature = "pq")]
+use ml_kem::{
+    kem::Kem, Encapsulate, EncapsulationKey768, KeyExport, MlKem768,
+    kem::TryDecapsulate,
+};
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 use std::convert::TryInto;
 use std::time::{Duration, SystemTime};
@@ -263,6 +268,8 @@ struct HandshakeInitSentState {
     chaining_key: [u8; KEY_LEN],
     ephemeral_private: x25519::ReusableSecret,
     time_sent: Instant,
+    #[cfg(feature = "pq")]
+    mlkem_decapsulation_key: Option<ml_kem::DecapsulationKey768>,
 }
 
 impl std::fmt::Debug for HandshakeInitSentState {
@@ -289,6 +296,8 @@ enum HandshakeState {
         chaining_key: [u8; KEY_LEN],
         peer_ephemeral_public: x25519::PublicKey,
         peer_index: u32,
+        #[cfg(feature = "pq")]
+        mlkem_encapsulation_key: Option<Vec<u8>>,
     },
     /// Handshake was established too long ago (implies no handshake is in progress)
     Expired,
@@ -556,6 +565,8 @@ impl Handshake {
                 hash,
                 peer_ephemeral_public,
                 peer_index,
+                #[cfg(feature = "pq")]
+                mlkem_encapsulation_key: None,
             },
         );
 
@@ -780,6 +791,8 @@ impl Handshake {
                 hash,
                 ephemeral_private,
                 time_sent: time_now,
+                #[cfg(feature = "pq")]
+                mlkem_decapsulation_key: None,
             }),
         );
 
@@ -801,6 +814,8 @@ impl Handshake {
                 hash,
                 peer_ephemeral_public,
                 peer_index,
+                #[cfg(feature = "pq")]
+                mlkem_encapsulation_key: _,
             } => (chaining_key, hash, peer_ephemeral_public, peer_index),
             _ => {
                 panic!("Unexpected attempt to call send_handshake_response");

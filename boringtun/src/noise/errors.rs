@@ -20,4 +20,6 @@ pub enum WireGuardError {
     LockFailed,
     ConnectionExpired,
     UnderLoad,
+    #[cfg(feature = "pq")]
+    MlKemDecapsulationFailed,
 }
