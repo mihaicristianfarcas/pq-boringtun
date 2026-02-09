@@ -84,6 +84,19 @@ const HANDSHAKE_RESP_SZ: usize = 92;
 const COOKIE_REPLY_SZ: usize = 64;
 const DATA_OVERHEAD_SZ: usize = 32;
 
+#[cfg(feature = "pq")]
+const PQ_HANDSHAKE_INIT: MessageType = 5;
+#[cfg(feature = "pq")]
+const PQ_HANDSHAKE_RESP: MessageType = 6;
+#[cfg(feature = "pq")]
+pub(crate) const MLKEM768_PK_SIZE: usize = 1184;
+#[cfg(feature = "pq")]
+pub(crate) const MLKEM768_CT_SIZE: usize = 1088;
+#[cfg(feature = "pq")]
+const PQ_HANDSHAKE_INIT_SZ: usize = 1332; // 148 - 32 (MACs) + 1184 (ML-KEM ek) + 32 (MACs) = 116 + 1184 + 32
+#[cfg(feature = "pq")]
+const PQ_HANDSHAKE_RESP_SZ: usize = 1180; // 92 - 32 (MACs) + 1088 (ML-KEM ct) + 32 (MACs) = 60 + 1088 + 32
+
 #[derive(Debug)]
 pub struct HandshakeInit<'a> {
     sender_idx: u32,
@@ -114,6 +127,26 @@ pub struct PacketData<'a> {
     encrypted_encapsulated_packet: &'a [u8],
 }
 
+#[cfg(feature = "pq")]
+#[derive(Debug)]
+pub struct PqHandshakeInit<'a> {
+    pub sender_idx: u32,
+    pub unencrypted_ephemeral: &'a [u8; 32],
+    pub encrypted_static: &'a [u8],
+    pub encrypted_timestamp: &'a [u8],
+    pub mlkem_ephemeral_public: &'a [u8],
+}
+
+#[cfg(feature = "pq")]
+#[derive(Debug)]
+pub struct PqHandshakeResponse<'a> {
+    pub sender_idx: u32,
+    pub receiver_idx: u32,
+    pub unencrypted_ephemeral: &'a [u8; 32],
+    pub encrypted_nothing: &'a [u8],
+    pub mlkem_ciphertext: &'a [u8],
+}
+
 /// Describes a packet from network
 #[derive(Debug)]
 pub enum Packet<'a> {
@@ -121,6 +154,10 @@ pub enum Packet<'a> {
     HandshakeResponse(HandshakeResponse<'a>),
     PacketCookieReply(PacketCookieReply<'a>),
     PacketData(PacketData<'a>),
+    #[cfg(feature = "pq")]
+    PqHandshakeInit(PqHandshakeInit<'a>),
+    #[cfg(feature = "pq")]
+    PqHandshakeResponse(PqHandshakeResponse<'a>),
 }
 
 impl Tunn {
@@ -158,6 +195,28 @@ impl Tunn {
                 counter: u64::from_le_bytes(src[8..16].try_into().unwrap()),
                 encrypted_encapsulated_packet: &src[16..],
             }),
+            #[cfg(feature = "pq")]
+            (PQ_HANDSHAKE_INIT, PQ_HANDSHAKE_INIT_SZ) => {
+                Packet::PqHandshakeInit(PqHandshakeInit {
+                    sender_idx: u32::from_le_bytes(src[4..8].try_into().unwrap()),
+                    unencrypted_ephemeral: <&[u8; 32]>::try_from(&src[8..40])
+                        .expect("length already checked above"),
+                    encrypted_static: &src[40..88],
+                    encrypted_timestamp: &src[88..116],
+                    mlkem_ephemeral_public: &src[116..116 + MLKEM768_PK_SIZE],
+                })
+            }
+            #[cfg(feature = "pq")]
+            (PQ_HANDSHAKE_RESP, PQ_HANDSHAKE_RESP_SZ) => {
+                Packet::PqHandshakeResponse(PqHandshakeResponse {
+                    sender_idx: u32::from_le_bytes(src[4..8].try_into().unwrap()),
+                    receiver_idx: u32::from_le_bytes(src[8..12].try_into().unwrap()),
+                    unencrypted_ephemeral: <&[u8; 32]>::try_from(&src[12..44])
+                        .expect("length already checked above"),
+                    encrypted_nothing: &src[44..60],
+                    mlkem_ciphertext: &src[60..60 + MLKEM768_CT_SIZE],
+                })
+            }
             _ => return Err(WireGuardError::InvalidPacket),
         })
     }
@@ -311,6 +370,10 @@ impl Tunn {
             Packet::HandshakeResponse(p) => self.handle_handshake_response(p, dst),
             Packet::PacketCookieReply(p) => self.handle_cookie_reply(p),
             Packet::PacketData(p) => self.handle_data(p, dst),
+            #[cfg(feature = "pq")]
+            Packet::PqHandshakeInit(p) => self.handle_pq_handshake_init(p, dst),
+            #[cfg(feature = "pq")]
+            Packet::PqHandshakeResponse(p) => self.handle_pq_handshake_response(p, dst),
         }
         .unwrap_or_else(TunnResult::from)
     }
@@ -386,6 +449,59 @@ impl Tunn {
         Ok(TunnResult::Done)
     }
 
+    #[cfg(feature = "pq")]
+    fn handle_pq_handshake_init<'a>(
+        &mut self,
+        p: PqHandshakeInit,
+        dst: &'a mut [u8],
+    ) -> Result<TunnResult<'a>, WireGuardError> {
+        tracing::debug!(
+            message = "Received pq_handshake_initiation",
+            remote_idx = p.sender_idx
+        );
+
+        let (packet, session) = self.handshake.receive_pq_handshake_initialization(p, dst)?;
+
+        let index = session.local_index();
+        self.sessions[index % N_SESSIONS] = Some(session);
+
+        self.timer_tick(TimerName::TimeLastPacketReceived);
+        self.timer_tick(TimerName::TimeLastPacketSent);
+        self.timer_tick_session_established(false, index);
+
+        tracing::debug!(message = "Sending pq_handshake_response", local_idx = index);
+
+        Ok(TunnResult::WriteToNetwork(packet))
+    }
+
+    #[cfg(feature = "pq")]
+    fn handle_pq_handshake_response<'a>(
+        &mut self,
+        p: PqHandshakeResponse,
+        dst: &'a mut [u8],
+    ) -> Result<TunnResult<'a>, WireGuardError> {
+        tracing::debug!(
+            message = "Received pq_handshake_response",
+            local_idx = p.receiver_idx,
+            remote_idx = p.sender_idx
+        );
+
+        let session = self.handshake.receive_pq_handshake_response(p)?;
+
+        let keepalive_packet = session.format_packet_data(&[], dst);
+        let l_idx = session.local_index();
+        let index = l_idx % N_SESSIONS;
+        self.sessions[index] = Some(session);
+
+        self.timer_tick(TimerName::TimeLastPacketReceived);
+        self.timer_tick_session_established(true, index);
+        self.set_current_session(l_idx);
+
+        tracing::debug!("Sending keepalive");
+
+        Ok(TunnResult::WriteToNetwork(keepalive_packet))
+    }
+
     /// Update the index of the currently used session, if needed
     fn set_current_session(&mut self, new_idx: usize) {
         let cur_idx = self.current;
@@ -445,7 +561,12 @@ impl Tunn {
 
         let starting_new_handshake = !self.handshake.is_in_progress();
 
-        match self.handshake.format_handshake_initiation(dst) {
+        #[cfg(feature = "pq")]
+        let result = self.handshake.format_pq_handshake_initiation(dst);
+        #[cfg(not(feature = "pq"))]
+        let result = self.handshake.format_handshake_initiation(dst);
+
+        match result {
             Ok(packet) => {
                 tracing::debug!("Sending handshake_initiation");
 
