@@ -159,9 +159,21 @@ impl RateLimiter {
         let packet = Tunn::parse_incoming_packet(src)?;
 
         // Verify and rate limit handshake messages only
-        if let Packet::HandshakeInit(HandshakeInit { sender_idx, .. })
-        | Packet::HandshakeResponse(HandshakeResponse { sender_idx, .. }) = packet
-        {
+        let sender_idx = match &packet {
+            Packet::HandshakeInit(HandshakeInit { sender_idx, .. }) => Some(*sender_idx),
+            Packet::HandshakeResponse(HandshakeResponse { sender_idx, .. }) => Some(*sender_idx),
+            #[cfg(feature = "pq")]
+            Packet::PqHandshakeInit(super::PqHandshakeInit { sender_idx, .. }) => {
+                Some(*sender_idx)
+            }
+            #[cfg(feature = "pq")]
+            Packet::PqHandshakeResponse(super::PqHandshakeResponse { sender_idx, .. }) => {
+                Some(*sender_idx)
+            }
+            _ => None,
+        };
+
+        if let Some(sender_idx) = sender_idx {
             let (msg, macs) = src.split_at(src.len() - 32);
             let (mac1, mac2) = macs.split_at(16);
 
