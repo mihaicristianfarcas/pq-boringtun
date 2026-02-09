@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 use super::{HandshakeInit, HandshakeResponse, PacketCookieReply};
+#[cfg(feature = "pq")]
+use super::{PqHandshakeInit, PqHandshakeResponse};
 use crate::noise::errors::WireGuardError;
 use crate::noise::session::Session;
 #[cfg(not(feature = "mock-instant"))]
@@ -893,6 +895,368 @@ impl Handshake {
 
         Ok((dst, Session::new(local_index, peer_index, temp2, temp3)))
     }
+
+    // PQ hybrid handshake methods
+
+    #[cfg(feature = "pq")]
+    pub(super) fn format_pq_handshake_initiation<'a>(
+        &mut self,
+        dst: &'a mut [u8],
+    ) -> Result<&'a mut [u8], WireGuardError> {
+        if dst.len() < super::PQ_HANDSHAKE_INIT_SZ {
+            return Err(WireGuardError::DestinationBufferTooSmall);
+        }
+
+        let (message_type, rest) = dst.split_at_mut(4);
+        let (sender_index, rest) = rest.split_at_mut(4);
+        let (unencrypted_ephemeral, rest) = rest.split_at_mut(32);
+        let (encrypted_static, rest) = rest.split_at_mut(32 + 16);
+        let (encrypted_timestamp, rest) = rest.split_at_mut(12 + 16);
+        let (mlkem_ek_field, _) = rest.split_at_mut(super::MLKEM768_PK_SIZE);
+
+        let local_index = self.inc_index();
+
+        // Same X25519 steps as format_handshake_initiation
+        let mut chaining_key = INITIAL_CHAIN_KEY;
+        let mut hash = INITIAL_CHAIN_HASH;
+        hash = b2s_hash(&hash, self.params.peer_static_public.as_bytes());
+        let ephemeral_private = x25519::ReusableSecret::random_from_rng(OsRng);
+        // msg.message_type = 5 (PQ Init)
+        message_type.copy_from_slice(&super::PQ_HANDSHAKE_INIT.to_le_bytes());
+        sender_index.copy_from_slice(&local_index.to_le_bytes());
+        unencrypted_ephemeral
+            .copy_from_slice(x25519::PublicKey::from(&ephemeral_private).as_bytes());
+        hash = b2s_hash(&hash, unencrypted_ephemeral);
+        chaining_key = b2s_hmac(&b2s_hmac(&chaining_key, unencrypted_ephemeral), &[0x01]);
+        let ephemeral_shared = ephemeral_private.diffie_hellman(&self.params.peer_static_public);
+        let temp = b2s_hmac(&chaining_key, &ephemeral_shared.to_bytes());
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+        let key = b2s_hmac2(&temp, &chaining_key, &[0x02]);
+        aead_chacha20_seal(
+            encrypted_static,
+            &key,
+            0,
+            self.params.static_public.as_bytes(),
+            &hash,
+        );
+        hash = b2s_hash(&hash, encrypted_static);
+        let temp = b2s_hmac(&chaining_key, self.params.static_shared.as_bytes());
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+        let key = b2s_hmac2(&temp, &chaining_key, &[0x02]);
+        let timestamp = self.stamper.stamp();
+        aead_chacha20_seal(encrypted_timestamp, &key, 0, &timestamp, &hash);
+        hash = b2s_hash(&hash, encrypted_timestamp);
+
+        // ML-KEM-768 ephemeral keygen
+        let mut rng = rand_core_pq::UnwrapErr(getrandom_pq::SysRng);
+        let (dk, ek): (ml_kem::DecapsulationKey768, EncapsulationKey768) =
+            MlKem768::generate_keypair_from_rng(&mut rng);
+        let ek_bytes = ek.to_bytes();
+        mlkem_ek_field.copy_from_slice(ek_bytes.as_slice());
+        // Mix ML-KEM ek into hash (bind to transcript)
+        hash = b2s_hash(&hash, mlkem_ek_field);
+
+        let time_now = Instant::now();
+        self.previous = std::mem::replace(
+            &mut self.state,
+            HandshakeState::InitSent(HandshakeInitSentState {
+                local_index,
+                chaining_key,
+                hash,
+                ephemeral_private,
+                time_sent: time_now,
+                mlkem_decapsulation_key: Some(dk),
+            }),
+        );
+
+        self.append_mac1_and_mac2(local_index, &mut dst[..super::PQ_HANDSHAKE_INIT_SZ])
+    }
+
+    #[cfg(feature = "pq")]
+    pub(super) fn receive_pq_handshake_initialization<'a>(
+        &mut self,
+        packet: PqHandshakeInit,
+        dst: &'a mut [u8],
+    ) -> Result<(&'a mut [u8], Session), WireGuardError> {
+        // Same X25519 steps as receive_handshake_initialization
+        let mut chaining_key = INITIAL_CHAIN_KEY;
+        let mut hash = INITIAL_CHAIN_HASH;
+        hash = b2s_hash(&hash, self.params.static_public.as_bytes());
+        let peer_index = packet.sender_idx;
+        let peer_ephemeral_public = x25519::PublicKey::from(*packet.unencrypted_ephemeral);
+        hash = b2s_hash(&hash, peer_ephemeral_public.as_bytes());
+        chaining_key = b2s_hmac(
+            &b2s_hmac(&chaining_key, peer_ephemeral_public.as_bytes()),
+            &[0x01],
+        );
+        let ephemeral_shared = self
+            .params
+            .static_private
+            .diffie_hellman(&peer_ephemeral_public);
+        let temp = b2s_hmac(&chaining_key, &ephemeral_shared.to_bytes());
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+        let key = b2s_hmac2(&temp, &chaining_key, &[0x02]);
+
+        let mut peer_static_public_decrypted = [0u8; KEY_LEN];
+        aead_chacha20_open(
+            &mut peer_static_public_decrypted,
+            &key,
+            0,
+            packet.encrypted_static,
+            &hash,
+        )?;
+
+        ring::constant_time::verify_slices_are_equal(
+            self.params.peer_static_public.as_bytes(),
+            &peer_static_public_decrypted,
+        )
+        .map_err(|_| WireGuardError::WrongKey)?;
+
+        hash = b2s_hash(&hash, packet.encrypted_static);
+        let temp = b2s_hmac(&chaining_key, self.params.static_shared.as_bytes());
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+        let key = b2s_hmac2(&temp, &chaining_key, &[0x02]);
+        let mut timestamp = [0u8; TIMESTAMP_LEN];
+        aead_chacha20_open(&mut timestamp, &key, 0, packet.encrypted_timestamp, &hash)?;
+
+        let timestamp = Tai64N::parse(&timestamp)?;
+        if !timestamp.after(&self.last_handshake_timestamp) {
+            return Err(WireGuardError::WrongTai64nTimestamp);
+        }
+        self.last_handshake_timestamp = timestamp;
+
+        hash = b2s_hash(&hash, packet.encrypted_timestamp);
+
+        // ML-KEM: read ek from packet, mix into hash
+        hash = b2s_hash(&hash, packet.mlkem_ephemeral_public);
+
+        self.previous = std::mem::replace(
+            &mut self.state,
+            HandshakeState::InitReceived {
+                chaining_key,
+                hash,
+                peer_ephemeral_public,
+                peer_index,
+                mlkem_encapsulation_key: Some(packet.mlkem_ephemeral_public.to_vec()),
+            },
+        );
+
+        self.format_pq_handshake_response(dst)
+    }
+
+    #[cfg(feature = "pq")]
+    fn format_pq_handshake_response<'a>(
+        &mut self,
+        dst: &'a mut [u8],
+    ) -> Result<(&'a mut [u8], Session), WireGuardError> {
+        if dst.len() < super::PQ_HANDSHAKE_RESP_SZ {
+            return Err(WireGuardError::DestinationBufferTooSmall);
+        }
+
+        let state = std::mem::replace(&mut self.state, HandshakeState::None);
+        let (mut chaining_key, mut hash, peer_ephemeral_public, peer_index, mlkem_ek_bytes) =
+            match state {
+                HandshakeState::InitReceived {
+                    chaining_key,
+                    hash,
+                    peer_ephemeral_public,
+                    peer_index,
+                    mlkem_encapsulation_key,
+                } => (
+                    chaining_key,
+                    hash,
+                    peer_ephemeral_public,
+                    peer_index,
+                    mlkem_encapsulation_key
+                        .expect("PQ response requires ML-KEM encapsulation key"),
+                ),
+                _ => {
+                    panic!("Unexpected attempt to call format_pq_handshake_response");
+                }
+            };
+
+        let (message_type, rest) = dst.split_at_mut(4);
+        let (sender_index, rest) = rest.split_at_mut(4);
+        let (receiver_index, rest) = rest.split_at_mut(4);
+        let (unencrypted_ephemeral, rest) = rest.split_at_mut(32);
+        let (encrypted_nothing, rest) = rest.split_at_mut(16);
+        let (mlkem_ct_field, _) = rest.split_at_mut(super::MLKEM768_CT_SIZE);
+
+        // Same X25519 steps as format_handshake_response
+        let ephemeral_private = x25519::ReusableSecret::random_from_rng(OsRng);
+        let local_index = self.inc_index();
+        message_type.copy_from_slice(&super::PQ_HANDSHAKE_RESP.to_le_bytes());
+        sender_index.copy_from_slice(&local_index.to_le_bytes());
+        receiver_index.copy_from_slice(&peer_index.to_le_bytes());
+        unencrypted_ephemeral
+            .copy_from_slice(x25519::PublicKey::from(&ephemeral_private).as_bytes());
+        hash = b2s_hash(&hash, unencrypted_ephemeral);
+        let temp = b2s_hmac(&chaining_key, unencrypted_ephemeral);
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+        let ephemeral_shared = ephemeral_private.diffie_hellman(&peer_ephemeral_public);
+        let temp = b2s_hmac(&chaining_key, &ephemeral_shared.to_bytes());
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+        let temp = b2s_hmac(
+            &chaining_key,
+            &ephemeral_private
+                .diffie_hellman(&self.params.peer_static_public)
+                .to_bytes(),
+        );
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+
+        // ML-KEM-768 encapsulation
+        let ek_array: &[u8; super::MLKEM768_PK_SIZE] = mlkem_ek_bytes
+            .as_slice()
+            .try_into()
+            .expect("ML-KEM ek wrong size");
+        let ek = EncapsulationKey768::new(ek_array)
+            .map_err(|_| WireGuardError::InvalidPacket)?;
+        let mut rng = rand_core_pq::UnwrapErr(getrandom_pq::SysRng);
+        let (ct, ss) = ek.encapsulate_with_rng(&mut rng);
+        mlkem_ct_field.copy_from_slice(ct.as_slice());
+        // Mix ML-KEM shared secret into chaining key
+        let temp = b2s_hmac(&chaining_key, ss.as_slice());
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+        // Mix ciphertext into hash (bind to transcript)
+        hash = b2s_hash(&hash, mlkem_ct_field);
+
+        // PSK mixing (unchanged)
+        let temp = b2s_hmac(
+            &chaining_key,
+            &self.params.preshared_key.unwrap_or([0u8; 32])[..],
+        );
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+        let temp2 = b2s_hmac2(&temp, &chaining_key, &[0x02]);
+        let key = b2s_hmac2(&temp, &temp2, &[0x03]);
+        hash = b2s_hash(&hash, &temp2);
+        aead_chacha20_seal(encrypted_nothing, &key, 0, &[], &hash);
+
+        // Derive session keys
+        let temp1 = b2s_hmac(&chaining_key, &[]);
+        let temp2 = b2s_hmac(&temp1, &[0x01]);
+        let temp3 = b2s_hmac2(&temp1, &temp2, &[0x02]);
+
+        let dst =
+            self.append_mac1_and_mac2(local_index, &mut dst[..super::PQ_HANDSHAKE_RESP_SZ])?;
+
+        Ok((dst, Session::new(local_index, peer_index, temp2, temp3)))
+    }
+
+    #[cfg(feature = "pq")]
+    pub(super) fn receive_pq_handshake_response(
+        &mut self,
+        packet: PqHandshakeResponse,
+    ) -> Result<Session, WireGuardError> {
+        let (state, is_previous) = match (&self.state, &self.previous) {
+            (HandshakeState::InitSent(s), _) if s.local_index == packet.receiver_idx => (s, false),
+            (_, HandshakeState::InitSent(s)) if s.local_index == packet.receiver_idx => (s, true),
+            _ => return Err(WireGuardError::UnexpectedPacket),
+        };
+
+        let peer_index = packet.sender_idx;
+        let local_index = state.local_index;
+
+        let unencrypted_ephemeral = x25519::PublicKey::from(*packet.unencrypted_ephemeral);
+        let mut hash = b2s_hash(&state.hash, unencrypted_ephemeral.as_bytes());
+        let temp = b2s_hmac(&state.chaining_key, unencrypted_ephemeral.as_bytes());
+        let mut chaining_key = b2s_hmac(&temp, &[0x01]);
+        let ephemeral_shared = state
+            .ephemeral_private
+            .diffie_hellman(&unencrypted_ephemeral);
+        let temp = b2s_hmac(&chaining_key, &ephemeral_shared.to_bytes());
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+        let temp = b2s_hmac(
+            &chaining_key,
+            &self
+                .params
+                .static_private
+                .diffie_hellman(&unencrypted_ephemeral)
+                .to_bytes(),
+        );
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+
+        // ML-KEM-768 decapsulation
+        let dk = state
+            .mlkem_decapsulation_key
+            .as_ref()
+            .ok_or(WireGuardError::InvalidPacket)?;
+        let ct: &[u8; super::MLKEM768_CT_SIZE] = packet
+            .mlkem_ciphertext
+            .try_into()
+            .map_err(|_| WireGuardError::InvalidPacket)?;
+        let ss = dk
+            .try_decapsulate(ct)
+            .map_err(|_| WireGuardError::MlKemDecapsulationFailed)?;
+        // Mix ML-KEM shared secret into chaining key
+        let temp = b2s_hmac(&chaining_key, ss.as_slice());
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+        // Mix ciphertext into hash (bind to transcript)
+        hash = b2s_hash(&hash, packet.mlkem_ciphertext);
+
+        // PSK mixing (unchanged)
+        let temp = b2s_hmac(
+            &chaining_key,
+            &self.params.preshared_key.unwrap_or([0u8; 32])[..],
+        );
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+        let temp2 = b2s_hmac2(&temp, &chaining_key, &[0x02]);
+        let key = b2s_hmac2(&temp, &temp2, &[0x03]);
+        hash = b2s_hash(&hash, &temp2);
+        aead_chacha20_open(&mut [], &key, 0, packet.encrypted_nothing, &hash)?;
+
+        // Derive session keys
+        let temp1 = b2s_hmac(&chaining_key, &[]);
+        let temp2 = b2s_hmac(&temp1, &[0x01]);
+        let temp3 = b2s_hmac2(&temp1, &temp2, &[0x02]);
+
+        let rtt_time = Instant::now().duration_since(state.time_sent);
+        self.last_rtt = Some(rtt_time.as_millis() as u32);
+
+        if is_previous {
+            self.previous = HandshakeState::None;
+        } else {
+            self.state = HandshakeState::None;
+        }
+        Ok(Session::new(local_index, peer_index, temp3, temp2))
+    }
+}
+
+#[cfg(feature = "pq")]
+pub fn parse_pq_handshake_anon(
+    static_private: &x25519::StaticSecret,
+    static_public: &x25519::PublicKey,
+    packet: &PqHandshakeInit,
+) -> Result<HalfHandshake, WireGuardError> {
+    // The first 116 bytes of PQ init are identical to classical init,
+    // so static key extraction works the same way.
+    let peer_index = packet.sender_idx;
+    let mut chaining_key = INITIAL_CHAIN_KEY;
+    let mut hash = INITIAL_CHAIN_HASH;
+    hash = b2s_hash(&hash, static_public.as_bytes());
+    let peer_ephemeral_public = x25519::PublicKey::from(*packet.unencrypted_ephemeral);
+    hash = b2s_hash(&hash, peer_ephemeral_public.as_bytes());
+    chaining_key = b2s_hmac(
+        &b2s_hmac(&chaining_key, peer_ephemeral_public.as_bytes()),
+        &[0x01],
+    );
+    let ephemeral_shared = static_private.diffie_hellman(&peer_ephemeral_public);
+    let temp = b2s_hmac(&chaining_key, &ephemeral_shared.to_bytes());
+    chaining_key = b2s_hmac(&temp, &[0x01]);
+    let key = b2s_hmac2(&temp, &chaining_key, &[0x02]);
+
+    let mut peer_static_public = [0u8; KEY_LEN];
+    aead_chacha20_open(
+        &mut peer_static_public,
+        &key,
+        0,
+        packet.encrypted_static,
+        &hash,
+    )?;
+
+    Ok(HalfHandshake {
+        peer_index,
+        peer_static_public,
+    })
 }
 
 #[cfg(test)]
