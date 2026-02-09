@@ -365,7 +365,8 @@ pub unsafe extern "C" fn wireguard_tick(
     wireguard_result::from(tunnel.update_timers(dst))
 }
 
-/// Force the tunnel to initiate a new handshake, dst buffer must be at least 148 byte long.
+/// Force the tunnel to initiate a new handshake, dst buffer must be at least 148 bytes long
+/// (or 1332 bytes when compiled with the `pq` feature for post-quantum hybrid handshakes).
 #[no_mangle]
 pub unsafe extern "C" fn wireguard_force_handshake(
     tunnel: *const Mutex<Tunn>,

@@ -37,6 +37,8 @@ use std::thread::JoinHandle;
 
 use crate::noise::errors::WireGuardError;
 use crate::noise::handshake::parse_handshake_anon;
+#[cfg(feature = "pq")]
+use crate::noise::handshake::parse_pq_handshake_anon;
 use crate::noise::rate_limiter::RateLimiter;
 use crate::noise::{Packet, Tunn, TunnResult};
 use crate::x25519;
@@ -629,6 +631,18 @@ impl Device {
                                 .and_then(|hh| {
                                     d.peers.get(&x25519::PublicKey::from(hh.peer_static_public))
                                 })
+                        }
+                        #[cfg(feature = "pq")]
+                        Packet::PqHandshakeInit(ref p) => {
+                            parse_pq_handshake_anon(private_key, public_key, p)
+                                .ok()
+                                .and_then(|hh| {
+                                    d.peers.get(&x25519::PublicKey::from(hh.peer_static_public))
+                                })
+                        }
+                        #[cfg(feature = "pq")]
+                        Packet::PqHandshakeResponse(p) => {
+                            d.peers_by_idx.get(&(p.receiver_idx >> 8))
                         }
                         Packet::HandshakeResponse(p) => d.peers_by_idx.get(&(p.receiver_idx >> 8)),
                         Packet::PacketCookieReply(p) => d.peers_by_idx.get(&(p.receiver_idx >> 8)),
