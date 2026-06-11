@@ -8,4 +8,5 @@
 
 # Paper artefacts (scripts, runbooks, measurement notes) are versioned.
 !paper/**
+paper/**/__pycache__/
 
