@@ -68,3 +68,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [[bench]]
 name = "crypto_benches"
 harness = false
+
+[[bench]]
+name = "handshake_benches"
+harness = false
