@@ -65,8 +65,24 @@ require_root() {
     [[ $EUID -eq 0 ]] || die "must run as root (try: sudo -E $0 ...)"
 }
 
+# Sudo (with or without -E) strips `secure_path` over the inherited PATH, so
+# rustup's ~/.cargo/bin disappears for the script's child processes. Recover
+# it from the invoking user's home before the dep check runs.
+ensure_user_cargo_on_path() {
+    command -v cargo >/dev/null 2>&1 && return 0
+    local user_home=""
+    if [[ -n "${SUDO_USER:-}" ]]; then
+        user_home=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+    fi
+    [[ -z "$user_home" ]] && user_home="$HOME"
+    if [[ -x "$user_home/.cargo/bin/cargo" ]]; then
+        export PATH="$user_home/.cargo/bin:$PATH"
+    fi
+}
+
 # Bail early with a clear message if a hard dependency is missing.
 require_deps() {
+    ensure_user_cargo_on_path
     local missing=()
     for cmd in ip wg iptables tc ping cargo; do
         command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
