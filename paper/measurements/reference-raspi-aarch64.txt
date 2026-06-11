@@ -1,0 +1,11 @@
+❯ uname -a
+Linux raspberrypi 6.18.33+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.18.33-1+rpt1 (2026-06-01) aarch64 GNU/Linux
+❯ lscpu | grep -E "Model name|Architecture|CPU max MHz"
+Architecture:                            aarch64
+Model name:                              Cortex-A76
+CPU max MHz:                             2400.0000
+❯ cat /etc/os-release | grep PRETTY_NAME
+PRETTY_NAME="Debian GNU/Linux 13 (trixie)"
+❯ free -h | head -2
+               total        used        free      shared  buff/cache   available
+Mem:           7.9Gi       389Mi       5.6Gi        13Mi       2.0Gi       7.5Gi
