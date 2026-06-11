@@ -169,3 +169,28 @@ ML-KEM-1024 & 1568 & 1568 & 1716 & 1660 \\
 \end{table}
 
 Where the choice actually matters is the wire. The 1280-byte IPv6 minimum MTU is the load-bearing threshold: only ML-KEM-512 fits under it without IP-level fragmentation. At a standard 1500-byte Ethernet MTU, both ML-KEM-512 and ML-KEM-768 fit comfortably; ML-KEM-1024's 1716-byte initiation always fragments. Picking ML-KEM-768 (as the thesis implementation does) gives NIST level 3 while remaining unfragmented on any normal Ethernet path; falling back to ML-KEM-512 is the only way to stay below the IPv6 floor; moving up to ML-KEM-1024 buys level-5 security at the cost of guaranteed fragmentation on every link. That is the empirical picture the parameter-set agility discussion in Chapter~\ref{chap:discussion} hangs on.
+
+\section{Per-Peer Memory Footprint}
+\label{sec:memory_footprint}
+
+A separate concern from handshake speed, especially for the IoT and edge story, is how much memory each peer state costs. BoringTun is a userspace daemon, so per-peer state lives in heap and on the stack of the \texttt{Tunn} struct rather than in kernel memory; the question is how much the hybrid additions inflate it. To answer this, a small probe example (\texttt{boringtun/examples/memory\_probe.rs}) prints \texttt{size\_of} for the relevant structs and samples peak RSS while holding $N \in \{10, 100, 1000\}$ live \texttt{Tunn} instances.
+
+\begin{table}[H]
+\centering
+\caption{Compile-time per-peer struct sizes. Identical across all measured platforms (Apple M4, Raspberry Pi 5, Ryzen 7 5700X via WSL2).}
+\label{tab:struct_sizes}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Type} & \textbf{Vanilla (B)} & \textbf{Hybrid (B)} & \textbf{Delta (B)} \\
+\midrule
+Tunn      & 11{,}040 & 17{,}424 & +6{,}384 \\
+Handshake &    552   &  6{,}936 & +6{,}384 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The entire 6{,}384-byte Tunn delta is accounted for inside the Handshake struct. Handshake holds two HandshakeState slots (current and previous, the latter to absorb the occasional reordered response from a flaky network), so each enum variant grew by about 3{,}192 bytes. That figure is the union of the inline \texttt{Option<DecapsulationKey768>} (the FIPS-203 decapsulation key is a 2{,}400-byte array carried by value, not boxed) in the \emph{InitSent} variant and the smaller \texttt{Option<Vec<u8>>} ek pointer in \emph{InitReceived}. The struct sizes are identical across all three measured platforms because Rust's layout is portable, so this overhead is a fixed per-peer cost regardless of where BoringTun runs.
+
+For the dynamic side, the M4 probe shows the per-peer resident-set cost converging to about 6.9~KB at $N = 1000$, within 8\% of the struct delta; the small remainder is allocator chunk overhead. A back-of-envelope projection: a concentrator holding 1000 hybrid peers spends about 6.9~MB more RAM than the same concentrator running vanilla. For IoT-class hardware with 100--512~MB of total RAM, that is under 2\% per peer.
+
+A caveat about the Linux measurements: the Pi 5 and Ryzen probes are honest, but the data is not as useful as the M4's. On both Linux platforms, the binary's static footprint (about 51~MB on the Pi, 63~MB on the Ryzen) is large enough that the 17~MB worth of Tunn structs at $N = 1000$ fits inside the allocator arenas already mapped during startup. \texttt{ru\_maxrss} is a high-water mark and is page-granular, so the watermark does not budge once it has been set by initialization. The cross-mode delta does survive (about 0.5--0.7~MB extra RSS for the pq build, reflecting the ml-kem crate's static data: NTT constants, SHA-3 tables), but the per-N scaling is below the noise floor of the watermark. The portable result to take away is the struct delta itself, which the M4 RSS measurements then ground in a real per-peer number.
