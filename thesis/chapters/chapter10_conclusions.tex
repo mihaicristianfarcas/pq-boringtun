@@ -1,0 +1,12 @@
+\chapter{Conclusions}
+\label{chap:conclusions}
+
+This thesis has presented a hybrid post-quantum key exchange for WireGuard, integrating ML-KEM-768 alongside X25519 in the Noise IK handshake. The implementation targets BoringTun, Cloudflare's production Rust userspace WireGuard, and to our knowledge is the first FIPS 203-compliant hybrid WireGuard prototype built on a real-world codebase.
+
+The core idea is straightforward: the initiator sends its ML-KEM encapsulation key in the first handshake message, the responder returns the ciphertext in the second, and both shared secrets (X25519 and ML-KEM) are mixed sequentially into the Noise chaining key via HMAC-BLAKE2s. This is structurally consistent with the NIST SP 800-56C concatenate-then-KDF pattern and gives a hybrid-secure construction: security holds as long as at least one of the two components remains unbroken. Because the ML-KEM keypair is generated fresh for every handshake, the hybrid also provides post-quantum forward secrecy, which the PSK-slot baseline cannot.
+
+The PSK-slot baseline, implemented as a small companion CLI tool, serves as a comparison point. It is simpler to deploy and works with unmodified WireGuard, but it lacks per-session forward secrecy for the quantum component.
+
+On the engineering side, the main challenge is the larger handshake messages: ML-KEM-768 adds about 2,272 bytes total. The current implementation handles this through IP-level fragmentation, which works on standard Ethernet paths. Application-level segmentation and path-MTU-aware strategies are left as future work. Empirical evaluation on Apple M4 and Raspberry Pi 5 shows that the ML-KEM computation itself is the dominant source of overhead, with the larger handshake messages adding a smaller secondary cost, and that transport throughput is unaffected.
+
+With NIST's 2030 deprecation deadline for classical key exchange approaching~\cite{nistir8547} and the harvest-now-decrypt-later threat no longer hypothetical, post-quantum key exchange for VPN protocols is becoming an operational requirement rather than a research exercise. This thesis offers a practical starting point for WireGuard's migration, built on NIST standards and tested on hardware that spans high-performance and resource-constrained environments.

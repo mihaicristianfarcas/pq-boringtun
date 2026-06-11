@@ -1,0 +1,52 @@
+\babel@toc {english}{}\relax 
+\contentsline {chapter}{Abstract}{i}{chapter*.1}%
+\contentsline {chapter}{List of Figures}{iv}{chapter*.3}%
+\contentsline {chapter}{List of Tables}{v}{chapter*.4}%
+\contentsline {chapter}{\numberline {1}Introduction}{1}{chapter.1}%
+\contentsline {chapter}{\numberline {2}Background}{4}{chapter.2}%
+\contentsline {section}{\numberline {2.1}The Quantum Threat and Public-Key Cryptography}{4}{section.2.1}%
+\contentsline {section}{\numberline {2.2}WireGuard: Protocol Design and Architecture}{5}{section.2.2}%
+\contentsline {subsection}{\numberline {2.2.1}The PSK Slot}{6}{subsection.2.2.1}%
+\contentsline {section}{\numberline {2.3}The Noise Protocol Framework}{7}{section.2.3}%
+\contentsline {section}{\numberline {2.4}ML-KEM (FIPS 203)}{8}{section.2.4}%
+\contentsline {section}{\numberline {2.5}Hybrid Key Exchange and the Concatenate-then-KDF Pattern}{9}{section.2.5}%
+\contentsline {chapter}{\numberline {3}Related Work}{11}{chapter.3}%
+\contentsline {section}{\numberline {3.1}PQ-WireGuard (Hülsing et al., 2021)}{11}{section.3.1}%
+\contentsline {section}{\numberline {3.2}Post-Quantum Noise (PQNoise)}{12}{section.3.2}%
+\contentsline {section}{\numberline {3.3}A Tale of Two Worlds: Formal Hybrid-WireGuard Analysis}{12}{section.3.3}%
+\contentsline {section}{\numberline {3.4}Rosenpass}{13}{section.3.4}%
+\contentsline {section}{\numberline {3.5}Hybrid Post-Quantum WireGuard via TLS PSK Delivery}{13}{section.3.5}%
+\contentsline {section}{\numberline {3.6}Revised PQ-WireGuard with Reinforced KEMs}{14}{section.3.6}%
+\contentsline {chapter}{\numberline {4}Problem Statement}{15}{chapter.4}%
+\contentsline {chapter}{\numberline {5}Design}{16}{chapter.5}%
+\contentsline {section}{\numberline {5.1}Design Goals}{16}{section.5.1}%
+\contentsline {section}{\numberline {5.2}The PSK-Slot Baseline}{17}{section.5.2}%
+\contentsline {section}{\numberline {5.3}The Hybrid Handshake}{18}{section.5.3}%
+\contentsline {section}{\numberline {5.4}Key Derivation Details}{20}{section.5.4}%
+\contentsline {section}{\numberline {5.5}Message Size Analysis and MTU Considerations}{21}{section.5.5}%
+\contentsline {chapter}{\numberline {6}Implementation}{23}{chapter.6}%
+\contentsline {section}{\numberline {6.1}BoringTun Architecture}{23}{section.6.1}%
+\contentsline {section}{\numberline {6.2}Technology Stack}{23}{section.6.2}%
+\contentsline {section}{\numberline {6.3}Handshake Module Modifications}{24}{section.6.3}%
+\contentsline {section}{\numberline {6.4}PSK-Slot Baseline Implementation}{25}{section.6.4}%
+\contentsline {section}{\numberline {6.5}Test Harness}{26}{section.6.5}%
+\contentsline {subsection}{\numberline {6.5.1}Unit Tests}{26}{subsection.6.5.1}%
+\contentsline {subsection}{\numberline {6.5.2}Integration Test Script}{27}{subsection.6.5.2}%
+\contentsline {chapter}{\numberline {7}Security Analysis}{28}{chapter.7}%
+\contentsline {section}{\numberline {7.1}Security Goals}{28}{section.7.1}%
+\contentsline {section}{\numberline {7.2}Hybrid Security Argument}{29}{section.7.2}%
+\contentsline {section}{\numberline {7.3}Forward Secrecy Analysis}{30}{section.7.3}%
+\contentsline {section}{\numberline {7.4}Authentication and Remaining Limitations}{30}{section.7.4}%
+\contentsline {section}{\numberline {7.5}Comparison of the Two Approaches}{31}{section.7.5}%
+\contentsline {chapter}{\numberline {8}Evaluation}{32}{chapter.8}%
+\contentsline {section}{\numberline {8.1}Handshake Latency Results}{33}{section.8.1}%
+\contentsline {section}{\numberline {8.2}Handshake Packet Sizes}{34}{section.8.2}%
+\contentsline {section}{\numberline {8.3}Transport Throughput}{35}{section.8.3}%
+\contentsline {section}{\numberline {8.4}ML-KEM Operation Benchmarks}{35}{section.8.4}%
+\contentsline {chapter}{\numberline {9}Discussion}{37}{chapter.9}%
+\contentsline {section}{\numberline {9.1}Choosing Between the PSK-Slot and Hybrid Approaches}{37}{section.9.1}%
+\contentsline {section}{\numberline {9.2}Deployment Considerations}{38}{section.9.2}%
+\contentsline {section}{\numberline {9.3}Authentication Agility and Future Work}{38}{section.9.3}%
+\contentsline {section}{\numberline {9.4}Positioning within the Broader PQ-WireGuard Landscape}{40}{section.9.4}%
+\contentsline {chapter}{\numberline {10}Conclusions}{41}{chapter.10}%
+\contentsline {chapter}{Bibliography}{43}{chapter*.13}%

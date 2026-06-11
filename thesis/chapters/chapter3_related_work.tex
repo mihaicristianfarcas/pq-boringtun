@@ -1,0 +1,48 @@
+\chapter{Related Work}
+\label{chap:related_work}
+
+\section{PQ-WireGuard (Hülsing et al., 2021)}
+
+The most directly relevant prior work is PQ-WireGuard by Hülsing, Ning, Schwabe, Weber, and Zimmermann~\cite{hulsing2021pqwireguard}, published at IEEE S\&P 2021. Rather than augmenting WireGuard's X25519 handshake, PQ-WireGuard replaces it entirely with a KEM-based construction. The goal was not just post-quantum confidentiality but full post-quantum authentication as well.
+
+They instantiate the construction with Classic McEliece for static-key authentication (IND-CCA) and a passive-security variant of Saber for ephemeral key exchange (IND-CPA), chosen partly to keep handshake messages within the IPv6 minimum MTU of 1,280 bytes. Classic McEliece is code-based, so it offers security assumption diversity relative to lattice-based schemes.
+
+Security is proved in the eCK-PFS-PSK model (adapting the classical WireGuard proof) and verified symbolically using Tamarin, establishing session-key secrecy with perfect forward secrecy.
+
+Benchmarks show PQ-WireGuard's handshake running at roughly 0.6$\times$ the time of standard WireGuard, which makes sense given that KEM operations are computationally cheaper than ECDH at the parameter sets they evaluate. This thesis differs in three ways: it uses a hybrid construction rather than a pure post-quantum replacement, it targets NIST-standardized ML-KEM rather than pre-standardization Saber, and it works within the existing BoringTun codebase rather than a research prototype.
+
+\section{Post-Quantum Noise (PQNoise)}
+
+Angel, Dowling, Hülsing, Schwabe, and Weber introduced PQNoise~\cite{pqnoise2022}, a generic framework for converting Noise protocol patterns into post-quantum equivalents using KEMs. PQNoise introduces new token types, ekem and skem, to represent KEM encapsulations to ephemeral and static public keys respectively, replacing the two-letter DH tokens (ee, es, se, ss).
+
+One of the central problems PQNoise addresses is that KEMs cannot be combined non-interactively the way DH key shares can. When the sending party owns a static key, they cannot simply compute a DH share with the other party's ephemeral key; instead, the other party must perform the encapsulation and send the ciphertext. This asymmetry sometimes requires additional round trips compared to the classical Noise patterns.
+
+PQNoise also introduces Static-Ephemeral Entropy Combination (SEEC), a technique for hardening randomness in KEM operations to protect against weak random number generators. The security of PQNoise patterns is proved in the flexible ACCE (fACCE) model, showing that confidentiality and authenticity are preserved.
+
+PQNoise benchmarks using Kyber-768 on a 1,000 Mbit/s network show handshake times of 31.1ms, better than classical Noise in CPU time but slower in wall-clock time due to larger messages. PQNoise is relevant to this thesis as it defines the theoretical framework within which the hybrid handshake construction sits; the WireGuard IK pattern can be viewed as a specific instantiation of a Noise pattern, and the hybrid variant described in this thesis can be understood as a variant of the pqIK pattern augmented with classical DH.
+
+\section{A Tale of Two Worlds: Formal Hybrid-WireGuard Analysis}
+
+Lafourcade, Mahmoud, Ruhault, and Taleb~\cite{lafourcade2025hybrid} revisited PQ-WireGuard with a thorough formal analysis using Sapic+, ProVerif, DeepSec, and Tamarin, and proposed two improvements: PQ-WireGuard$\star$ and Hybrid-WireGuard. Their analysis uncovered weaknesses in the original PQ-WireGuard, including vulnerability to Unknown-Key-Share (UKS) attacks and failure to achieve initiator/responder anonymity.
+
+PQ-WireGuard$\star$ addresses these issues through modifications to the key derivation that incorporate both parties' static public keys, preventing the UKS attack. Hybrid-WireGuard is then constructed by combining the DH secrets from WireGuard with the KEM secrets from PQ-WireGuard$\star$ via concatenation, and formally proving that security holds as long as either the classical or post-quantum component is secure.
+
+The paper also highlights a point directly relevant here: MTU constraints heavily limit which KEMs can be used in WireGuard, since handshake messages need to fit within the IPv6 minimum of 1,280 bytes. Their Hybrid-WireGuard implementation is provided in Rust.
+
+This thesis builds on their results but takes a different approach in several respects: it targets NIST-standardized ML-KEM within the existing BoringTun production codebase, accepts the larger message sizes (relying on IP fragmentation rather than constraining the parameter set), and provides empirical benchmarks on real hardware.
+
+\section{Rosenpass}
+
+Rosenpass~\cite{rosenpass} takes the PSK-slot idea and turns it into a continuously running daemon. Written in Rust, it generates post-quantum PSKs using Classic McEliece (IND-CCA) and Kyber-512 (IND-CPA) and injects them into WireGuard's preshared key field, refreshing the PSK every two minutes~\cite{rosenpass-github}. This bounds the exposure window: at most two minutes of traffic is at risk if a PSK is compromised. The project has been formally analyzed in ProVerif and underwent a penetration test in 2024.
+
+Structurally, Rosenpass is similar to the PSK baseline in this thesis, with the key difference being that Rosenpass runs continuously rather than performing a one-time key injection. It serves as a practical existence proof that PSK-based post-quantum WireGuard works in production.
+
+The limitation Rosenpass shares with this thesis's PSK baseline is the lack of per-handshake forward secrecy: if the PSK used for a given session is later compromised, that session's traffic is exposed. The full hybrid approach avoids this by generating fresh ML-KEM key material inside every handshake.
+
+\section{Hybrid Post-Quantum WireGuard via TLS PSK Delivery}
+
+Membrey and Beyel at ExpressVPN~\cite{membrey2025expressvpn} describe a production deployment of the PSK-slot approach, using ML-KEM hybrid TLS 1.3 to deliver WireGuard PSKs through a split-service authentication architecture. The system is live across ExpressVPN's global infrastructure, adding 15--20ms to connection establishment with no steady-state throughput penalty. It is a more operationally elaborate version of the PSK-slot idea, and it demonstrates that the approach works at commercial scale.
+
+\section{Revised PQ-WireGuard with Reinforced KEMs}
+
+A concurrent line of work by Hashimoto, Katsumata, Niot, and Wiggers (IEEE S\&P 2026) revisits the design of PQ-WireGuard and introduces reinforced KEMs (RKEMs) as a new building block. Their construction, using a novel ML-KEM-based RKEM called Rebar, eliminates the need for Classic McEliece static keys on the server, reducing the server's public key memory requirements by 190--390x. This work addresses a major deployment concern with the original PQ-WireGuard and represents the state of the art in purely post-quantum WireGuard design~\cite{hashimoto2026rkem}.

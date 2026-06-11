@@ -1,0 +1,56 @@
+\chapter{Discussion}
+\label{chap:discussion}
+
+\section{Choosing Between the PSK-Slot and Hybrid Approaches}
+
+The PSK-slot and hybrid approaches are not just different implementations of the same idea; they occupy genuinely different positions in the security/complexity tradeoff space. For operators who need post-quantum protection today with minimal disruption, the PSK-slot approach is the pragmatic choice. It requires no WireGuard code changes, works with any existing client and server, and can be rolled out incrementally. Rosenpass and ExpressVPN's PSK-over-TLS deployment show this works at scale~\cite{rosenpass,membrey2025expressvpn}.
+
+The hybrid approach makes more sense when the threat model includes not just passive HNDL adversaries but also future active attackers with quantum computers. Its key advantage is per-handshake forward secrecy: every WireGuard session gets a fresh ML-KEM keypair, so even if key material is somehow compromised after the fact, past sessions remain protected. With the PSK-slot approach, a single PSK compromise can expose months of traffic.
+
+Looking further ahead, the hybrid is better aligned with where things are going. Organizations facing the 2030 or 2035 NIST deprecation deadlines will eventually need a WireGuard deployment whose key exchange is fully quantum-resistant without depending on external key management. The PSK-slot approach defers that problem; the hybrid solves it.
+
+\section{Deployment Considerations}
+
+Beyond the security analysis, several practical issues affect whether the hybrid handshake can actually be deployed:
+
+\textbf{MTU management} is the most pressing operational concern. Network paths with an effective MTU below 1,332 bytes will fragment the hybrid initiation message. Fragmentation is not universally supported: firewalls, middleware boxes, and some ISP configurations drop IP fragments. The current implementation relies on IP-level fragmentation, which works on most standard Ethernet paths (1,500-byte MTU). For deployment on paths where fragmentation is unreliable, future work could implement application-level segmentation (splitting ML-KEM material into separate datagrams) or Path MTU Discovery with KEM parameter negotiation. As a practical workaround, operators could configure WireGuard to negotiate a lower MTU for the VPN interface, reducing the usable payload MTU for encapsulated traffic.
+
+\textbf{Interoperability} is a constraint: both endpoints must run the hybrid-capable BoringTun. A vanilla WireGuard peer will reject the extended handshake messages outright (the unknown fields cause MAC verification to fail). Some form of capability negotiation --- a reserved field in the handshake, or simply an out-of-band configuration flag --- would be needed for gradual rollout. This is an engineering problem, not a fundamental one.
+
+\textbf{Key management} is actually simpler with the hybrid than with the PSK-slot approach. X25519 static keys are managed as before, and the ML-KEM ephemeral keys are generated and discarded within each handshake. There is nothing new to distribute or rotate.
+
+\textbf{Performance on constrained hardware} matters for edge and IoT deployments. The Raspberry Pi 5 benchmarks (Chapter~\ref{chap:evaluation}) are intended as a proxy for ARM-based edge devices, and the picture they paint is encouraging: the hybrid handshake overhead on the Pi is sub-millisecond, well below the RTT of any realistic WAN path, so at this hardware tier handshake cost is dominated by the network rather than by ML-KEM computation.
+
+\section{Authentication Agility and Future Work}
+
+Authentication in this thesis remains classical (X25519 static keys), which means it is quantum-vulnerable. A future version could extend the authentication layer to ML-DSA (FIPS 204) for post-quantum signatures, or use static ML-KEM keys for authentication as PQ-WireGuard and Hybrid-WireGuard do. Either option significantly increases key management complexity (ML-DSA public keys are around 1,312 bytes, compared to 32 bytes for X25519) and may require rethinking how WireGuard keys are distributed.
+
+Leaving authentication classical is a deliberate choice, consistent with NIST's guidance~\cite{nistir8547} that key agreement migration (where HNDL attacks apply) is more urgent than signature migration (where past signatures cannot be retroactively forged). Key exchange is what the 2030/2035 deadline targets.
+
+\textbf{Rosenpass integration:} A natural extension of the PSK-slot baseline is to integrate with the Rosenpass daemon, which continuously refreshes the WireGuard PSK using post-quantum key exchange. The combination of Rosenpass-managed PSKs and the hybrid handshake would provide layered post-quantum security: the handshake ML-KEM provides ephemeral forward secrecy, and the Rosenpass PSK provides additional quantum-resistant keying material. However, careful analysis is needed to confirm that double-layering does not introduce new vulnerabilities.
+
+\textbf{Formal verification:} The informal security argument in this thesis should be supplemented by a formal proof in a computational model. The eCK-PFS-PSK model used by Hülsing et al.\ for PQ-WireGuard~\cite{hulsing2021pqwireguard}, and the Sapic+-based approach of Lafourcade et al.\ for Hybrid-WireGuard~\cite{lafourcade2025hybrid}, provide templates for how such a proof would be structured.
+
+\textbf{Parameter set agility:} The implementation currently targets ML-KEM-768. An extension could allow negotiation between ML-KEM-512 (smaller messages, NIST level 1) and ML-KEM-1024 (larger messages, NIST level 5) based on the available path MTU and the security requirements of the deployment.
+
+\textbf{MTU fragmentation handling:} The current implementation relies on IP-level fragmentation for paths with MTUs below 1,332 bytes. Two alternative strategies merit investigation: application-level segmentation, where the ML-KEM material is sent in a separate UDP datagram (adding a round trip but avoiding IP fragmentation), and Path MTU Discovery with KEM parameter negotiation, where the handshake selects an ML-KEM parameter set (e.g., ML-KEM-512 for constrained paths) that fits within the discovered MTU. Both approaches add protocol complexity and would require careful design to avoid introducing downgrade attacks.
+
+\textbf{Crypto-agility concerns:} WireGuard's deliberate lack of cipher agility is a security strength — it prevents protocol downgrade attacks of the kind that have plagued TLS. The hybrid implementation should not introduce algorithm negotiation that could be exploited for downgrade attacks. The recommended approach is to configure the ML-KEM parameter set at the operator level, not to negotiate it per-connection.
+
+\section{Positioning within the Broader PQ-WireGuard Landscape}
+
+It is worth being explicit about where this thesis sits relative to the existing work:
+
+\begin{itemize}
+\item It targets a production Rust codebase (BoringTun), unlike most academic proposals which use prototype implementations.
+
+\item It uses NIST-standardized ML-KEM (FIPS 203), unlike PQ-WireGuard (Saber, McEliece) and Rosenpass (Kyber before standardization).
+
+\item It is hybrid (X25519 + ML-KEM), unlike PQ-WireGuard which is purely post-quantum.
+
+\item It modifies the Noise handshake directly for the full hybrid, unlike the PSK-slot approaches (Rosenpass, ExpressVPN).
+
+\item It evaluates across multiple hardware platforms including ARM, providing empirical data relevant to constrained deployments.
+\end{itemize}
+
+The closest academic work is the Hybrid-WireGuard proposal of Lafourcade et al.~\cite{lafourcade2025hybrid}, which provides formal security proofs for a hybrid protocol. This thesis complements that work: where they provide the proofs, this thesis provides an implementation in a real-world Rust codebase and empirical performance data. The informal security analysis here gestures toward the kind of formal argument their work makes rigorous.
