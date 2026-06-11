@@ -1,0 +1,15 @@
+\babel@toc {english}{}\relax 
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {figure}{\numberline {2.1}{\ignorespaces Vanilla WireGuard Handshake (Noise IK pattern).\relax }}{6}{figure.caption.5}%
+\contentsline {figure}{\numberline {2.2}{\ignorespaces Comparison of Diffie-Hellman key exchange and Key Encapsulation Mechanisms, illustrating the asymmetry challenge for Noise protocol migration. The KEM side shows the canonical direction, where the recipient of the shared secret publishes the encapsulation key; the hybrid construction in Chapter~\ref {chap:design} runs this the other way around, with the initiator generating an ephemeral $(\mathit {ek}, \mathit {dk})$ and sending $\mathit {ek}$ in the first message to mirror the X25519 ephemeral flow.\relax }}{8}{figure.caption.6}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {figure}{\numberline {5.1}{\ignorespaces PSK-Slot Baseline: Out-of-band ML-KEM exchange and PSK injection.\relax }}{17}{figure.caption.7}%
+\contentsline {figure}{\numberline {5.2}{\ignorespaces The Full Hybrid Handshake: Integrated ML-KEM-768.\relax }}{20}{figure.caption.8}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }

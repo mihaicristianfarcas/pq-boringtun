@@ -1,0 +1,242 @@
+% ============================================================================
+%  UBB FMI Thesis Style - Highly Enhanced Version
+% ============================================================================
+
+% Core packages
+\usepackage{geometry}                           % page settings
+\usepackage[onehalfspacing]{setspace}           % 1.5 distance between lines
+\usepackage[utf8]{inputenc}                     % encoding
+\usepackage[T1]{fontenc}                        % font encoding
+\usepackage{graphicx}                           % images
+\usepackage{url}                                % links
+\usepackage[nottoc]{tocbibind}                  % include bibliography in TOC
+\usepackage{etoolbox,ifthen}                    % ifthen type of commands
+\usepackage{kvoptions}                          % define key/value pairs as options for packages and classes
+
+% ----------------------------------------------------------------------------
+%  Typography & Fonts
+% ----------------------------------------------------------------------------
+% Using NewPX (modern Palatino) to respect the template while looking better
+\usepackage{newpxtext}                          % palatino for body
+\usepackage{newpxmath}                          % matching math
+\usepackage[scaled=0.85]{beramono}              % nice monospace font
+\usepackage{biolinum}                           % biolinum for sans-serif (headings)
+\usepackage{microtype}
+\microtypesetup{expansion=false}                % Font expansion is not supported in XeTeX (Tectonic)
+\usepackage[babel=true]{csquotes}               % proper quotation marks
+
+% ----------------------------------------------------------------------------
+%  Colors & Links
+% ----------------------------------------------------------------------------
+\usepackage{xcolor}
+\definecolor{primary}{RGB}{0,51,102}           % deep blue (UBB style)
+\definecolor{secondary}{RGB}{102,0,0}          % deep red/burgundy
+\definecolor{accent}{RGB}{0,102,51}            % deep green
+\definecolor{rust-keyword}{RGB}{175,0,0}       % for rust syntax
+\definecolor{rust-comment}{RGB}{0,128,0}       % for rust syntax
+\definecolor{rust-string}{RGB}{128,0,128}      % for rust syntax
+
+\usepackage[
+    unicode,
+    pdfusetitle,
+    colorlinks=true,
+    linkcolor=primary,
+    citecolor=accent,
+    urlcolor=primary,
+    bookmarks=true,
+    bookmarksnumbered=true,
+    bookmarksopen=true,
+    bookmarksopenlevel=1,
+    pdfstartview=FitH,
+    breaklinks=true
+]{hyperref}
+
+% ----------------------------------------------------------------------------
+%  Layout & Headings
+% ----------------------------------------------------------------------------
+\usepackage{titlesec}
+\usepackage{parskip}                            % better paragraph spacing
+\usepackage{enumitem}                           % customizable lists
+\setlist{nosep, leftmargin=1.5em}               % compact lists
+
+% Modern chapter style: Large number on the right
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries\sffamily\color{primary}}
+  {\filleft\textnormal{\fontsize{60}{60}\selectfont\color{gray!30}\thechapter}}
+  {20pt}
+  {\filleft\huge}
+  [\vspace{1ex}\titlerule]
+
+\titleformat{\section}
+  {\normalfont\Large\bfseries\sffamily\color{primary}}
+  {\thesection}
+  {1em}
+  {}
+
+\titleformat{\subsection}
+  {\normalfont\large\bfseries\sffamily\color{primary}}
+  {\thesubsection}
+  {1em}
+  {}
+
+% ----------------------------------------------------------------------------
+%  Headers & Footers
+% ----------------------------------------------------------------------------
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\sffamily\small\leftmark}
+\fancyfoot[C]{\sffamily\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0pt}
+\setlength{\headheight}{14pt}
+
+% ----------------------------------------------------------------------------
+%  Figures, Tables & Listings
+% ----------------------------------------------------------------------------
+\usepackage{caption}                            % better captions
+\usepackage{subcaption}                         % subfigures
+\usepackage{booktabs}                           % professional tables
+\usepackage{tabularx}                           % flexible-width tables
+\usepackage{float}                              % improved float handling
+\usepackage{listings}                           % code listings
+
+\captionsetup{
+    font=small,
+    labelfont={bf,sf,color=primary},
+    labelsep=period,
+    skip=14pt,
+    justification=centering
+}
+
+% Figure spacing - more room around figures
+\setlength{\intextsep}{20pt plus 6pt minus 4pt}      % space above and below in-text floats
+\setlength{\floatsep}{20pt plus 6pt minus 4pt}       % space between floats
+\setlength{\textfloatsep}{24pt plus 6pt minus 4pt}   % space between float and text at top/bottom
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    keywordstyle=\bfseries\color{rust-keyword},
+    commentstyle=\itshape\color{rust-comment},
+    stringstyle=\color{rust-string},
+    breaklines=true,
+    breakatwhitespace=true,
+    frame=single,
+    framerule=0.5pt,
+    rulecolor=\color{gray!30},
+    backgroundcolor=\color{gray!5},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=10pt,
+    tabsize=4,
+    showstringspaces=false,
+    xleftmargin=2em,
+    framexleftmargin=2em,
+    aboveskip=1.5em,
+    belowskip=1.5em,
+    captionpos=b,
+}
+
+\lstdefinelanguage{Rust}{
+    morekeywords={fn, let, mut, pub, struct, impl, use, mod, if, else, match, for, while, loop, return, self, Self, trait, where, const, static, type, enum, true, false, async, await, move, ref, Box, Vec, String, Option, Result, Some, None, Ok, Err},
+    morecomment=[l]{//},
+    morecomment=[s]{/*}{*/},
+    morestring=[b]",
+    morestring=[b]',
+    sensitive=true,
+}
+
+% ----------------------------------------------------------------------------
+%  Page geometry (UBB template standard)
+% ----------------------------------------------------------------------------
+\geometry{  
+    a4paper,        
+    left=3cm,
+    right=2.5cm,
+    top=2.5cm,
+    bottom=2.5cm,
+}
+
+\bibliographystyle{alpha}
+
+% ----------------------------------------------------------------------------
+%  UBB Template Boilerplate
+% ----------------------------------------------------------------------------
+\newbool{@eng}\setbool{@eng}{false}
+\newbool{@dis}\setbool{@dis}{false}
+\newbool{@lic}\setbool{@lic}{true}
+
+\SetupKeyvalOptions{family=std, prefix=std@}
+\DeclareStringOption[romanian]{language}
+\DeclareStringOption[bachelor]{type}
+\DeclareDefaultOption{\PackageWarning{\@currname}{Unknown option `\CurrentOption'}}
+\ProcessKeyvalOptions*
+
+\ifthenelse{\equal{\std@language}{romanian}}{\setbool{@eng}{false}}{\setbool{@eng}{true}}
+\ifthenelse{\equal{\std@type}{bachelor}}{\setbool{@lic}{true}\setbool{@dis}{false}}{}
+\ifthenelse{\equal{\std@type}{master}}{\setbool{@dis}{true}\setbool{@lic}{false}}{}
+
+\DeclareRobustCommand*{\specialization}[1]{\gdef\@specialization{#1}}
+\DeclareRobustCommand*{\supervisor}[1]{\gdef\@supervisor{#1}}
+
+\ifbool{@eng}{\usepackage[english]{babel}}{\usepackage[romanian]{babel}}
+
+% ----------------------------------------------------------------------------
+%  Title Page (UBB standard but polished)
+% ----------------------------------------------------------------------------
+\renewcommand{\maketitle}
+{
+\begin{titlepage}
+\begin{center}
+
+\vspace*{0.5cm}
+{\Large\textbf{\textsc{\sffamily
+\ifbool{@eng}
+{
+Babeș-Bolyai University Cluj-Napoca \\[0.3em]
+Faculty of Mathematics and Computer Science \\[0.3em]
+Specialization: \@specialization
+}
+{
+Universitatea Babeș-Bolyai Cluj-Napoca \\[0.3em]
+Facultatea de Matematică și Informatică \\[0.3em]
+Specializarea: \@specialization
+}
+}}}
+
+\vspace{4cm}
+
+{\LARGE\textbf{\sffamily
+\ifbool{@dis}{\ifbool{@eng}{DISSERTATION THESIS}{LUCRARE DE DISERTAȚIE}}{}
+\ifbool{@lic}{\ifbool{@eng}{DIPLOMA THESIS}{LUCRARE DE LICENȚĂ}}{}
+}}
+
+\vspace{0.8cm}
+
+{\huge\bfseries\sffamily\color{primary}\@title\par}
+
+\vfill
+
+\begin{minipage}[t]{0.45\textwidth}
+\begin{flushleft}
+\large
+\textbf{\sffamily\ifbool{@eng}{Supervisor}{Conducător științific}:}\\[0.3em]
+\@supervisor
+\end{flushleft}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.45\textwidth}
+\begin{flushright}
+\large
+\textbf{\sffamily\ifbool{@eng}{Author}{Absolvent}:}\\[0.3em]
+\@author
+\end{flushright}
+\end{minipage}
+
+\vspace{2cm}
+
+{\Large\textbf{\sffamily\the\year}}
+
+\end{center}
+\end{titlepage}
+}

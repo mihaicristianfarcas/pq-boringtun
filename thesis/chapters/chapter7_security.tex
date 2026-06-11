@@ -1,0 +1,70 @@
+\chapter{Security Analysis}
+\label{chap:security}
+
+\section{Security Goals}
+
+The security goals for the hybrid handshake are the same as for vanilla WireGuard, as established by Dowling and Paterson's computational proof~\cite{dowling2018wireguard} and Donenfeld and Milner's symbolic Tamarin proof~\cite{donenfeld2018formal}, and extended to the post-quantum setting by PQ-WireGuard~\cite{hulsing2021pqwireguard} and Hybrid-WireGuard~\cite{lafourcade2025hybrid}:
+
+\textbf{Session-key secrecy:} A passive or active adversary who does not corrupt either party's long-term or ephemeral secrets cannot distinguish the established session key from a random value.
+
+\textbf{Perfect forward secrecy (PFS):} Compromise of long-term static keys does not allow an adversary to decrypt past sessions. This holds because each session uses a fresh ephemeral keypair (both X25519 and ML-KEM), so past session keys cannot be derived from the static keys alone.
+
+\textbf{Post-quantum forward secrecy:} The X25519 PFS guarantee is extended to the quantum setting: a quantum adversary who breaks X25519 after the session cannot decrypt past traffic, because doing so also requires breaking ML-KEM, which remains computationally hard.
+
+\textbf{Authenticity:} Both the initiator and responder can verify each other's identity via their static public keys (X25519 static keys, as in standard WireGuard). Authentication is classical, not post-quantum, in this design.
+
+\textbf{DoS resistance:} The existing WireGuard cookie mechanism is preserved. Handshake initiation messages with invalid MAC1 are rejected without server state allocation, maintaining the DoS resistance property of vanilla WireGuard.
+
+\textbf{Replay resistance:} The Noise handshake transcript, extended to include the ML-KEM material, prevents replay attacks. The handshake hash h binds all transmitted material, including the ML-KEM ciphertext, to the session.
+
+\section{Hybrid Security Argument}
+
+The security of the hybrid construction follows from the concatenate-then-KDF security proof. Let $\mathit{ss}_\mathit{classical}$ denote the combined X25519 shared secrets derived from the Noise IK exchange, and let $\mathit{ss}_\mathit{kem}$ denote the ML-KEM-768 shared secret. The chaining key $\mathit{ck}$ evolves through sequential HMAC-BLAKE2s mixing of each shared secret. After the classical exchange, $\mathit{ck}$ already incorporates $\mathit{ss}_\mathit{classical}$. The ML-KEM shared secret is then mixed in:
+
+\begin{equation}
+\mathit{ck}' = \mathsf{HMAC\text{-}BLAKE2s}(\mathsf{HMAC\text{-}BLAKE2s}(\mathit{ck}, \mathit{ss}_\mathit{kem}), \mathtt{0x01})
+\end{equation}
+
+The session keys $K$ are derived from $\mathit{ck}'$ after the PSK mixing step.
+
+\textbf{Claim:} $K$ is computationally indistinguishable from a random key as long as either $\mathit{ss}_\mathit{classical}$ is pseudorandom (i.e., X25519 is secure) OR $\mathit{ss}_\mathit{kem}$ is pseudorandom (i.e., ML-KEM-768 is IND-CCA2 secure).
+
+This follows from the security of HMAC-BLAKE2s as a PRF: if either input to the chaining key is a uniformly random value independent of the adversary's view, then the chaining key output, and consequently the derived session keys, are computationally indistinguishable from random (under the assumption that BLAKE2s is a secure PRF). The sequential mixing of independent shared secrets into the chaining key is structurally equivalent to the concatenate-then-KDF pattern, as each component contributes independently to the final key material. The formal proof is a standard hybrid argument; Giacon, Heuer, and Poettering~\cite{giacon2018combiners} give it for the concatenation combiner.
+
+In the HNDL threat model, the adversary captures the handshake transcript, which includes both the X25519 public keys and the ML-KEM ciphertext ct. With a quantum computer, the adversary can recover ss\_classical from the X25519 keys. However, to recover ss\_kem, the adversary must also solve the ML-KEM decapsulation problem — specifically, recover the ML-KEM private key dk\_i from the public encapsulation key ek\_i and then decapsulate ct. This is the IND-CCA2 security problem for ML-KEM, which is believed computationally hard for both classical and quantum adversaries under the MLWE assumption.
+
+\section{Forward Secrecy Analysis}
+
+The hybrid handshake provides genuine per-session forward secrecy for the ML-KEM component, in contrast to the PSK-slot baseline.
+
+In the PSK-slot baseline, the ML-KEM exchange is performed once, out-of-band, and the resulting PSK is reused across many WireGuard sessions. If an adversary compromises the PSK after the fact — through the out-of-band channel, key theft, or other means — all sessions using that PSK are retroactively vulnerable, even to a purely classical adversary. The ML-KEM component does not contribute ephemeral, per-session material.
+
+In the full hybrid, the ML-KEM keypair (ek\_i, dk\_i) is generated fresh for every WireGuard handshake. The ciphertext ct encapsulates ss\_kem specifically for that session's ephemeral public key ek\_i. Once the session key has been derived and dk\_i has been zeroed from memory (consistent with WireGuard's existing practice of zeroing ephemeral keys after use), there is no remaining information that would allow recovery of ss\_kem. An adversary who subsequently breaks into either peer's memory finds no material that compromises past sessions.
+
+This makes the hybrid's forward secrecy against quantum adversaries equivalent in structure to X25519's forward secrecy against classical adversaries: in both cases, the ephemeral key is gone, and the session key cannot be reconstructed.
+
+\section{Authentication and Remaining Limitations}
+
+An important limitation of this design, shared with most practical hybrid WireGuard proposals, is that authentication stays classical. The static public keys used for identity binding in the Noise IK pattern are X25519 keys. A quantum adversary with a large enough quantum computer could, in principle, compute the static private key from the static public key and impersonate either party in new sessions. However:
+
+\begin{enumerate}
+\item Authentication cannot be retroactively broken: even if a quantum adversary eventually recovers the static X25519 key, it cannot retroactively forge the authentication in past sessions, because authentication affects only the handshake transcript, not the session data.
+
+\item The HNDL threat for past sessions is mitigated by the ML-KEM component in the hybrid: even with the static X25519 key, an adversary cannot reconstruct past session keys without breaking ML-KEM (for sessions using the hybrid handshake).
+
+\item Future work could extend the authentication layer to use ML-DSA (FIPS 204) for post-quantum signatures, but this significantly increases complexity and is outside the scope of this thesis.
+\end{enumerate}
+
+The hybrid design also inherits WireGuard's identity-hiding properties: the initiator's static public key is encrypted before transmission and is not visible to passive eavesdroppers. Whether this identity hiding extends fully to the post-quantum setting, and whether it can be formally proved along the lines of the Hybrid-WireGuard analysis, is left as future work.
+
+\section{Comparison of the Two Approaches}
+
+The PSK-slot baseline and the full hybrid differ in three important ways:
+
+\textbf{Forward secrecy for the quantum component:} The hybrid provides per-handshake ephemeral ML-KEM exchange, giving full post-quantum forward secrecy. The PSK-slot approach does not.
+
+\textbf{Protocol transparency:} The PSK-slot approach works with any WireGuard implementation; it requires no changes to the WireGuard protocol. The hybrid requires both peers to use a modified WireGuard implementation and to agree to use the hybrid mode.
+
+\textbf{Operational complexity:} The PSK-slot approach requires a separate key exchange infrastructure and periodic PSK rotation (or uses a static PSK, reducing security). The hybrid integrates key exchange into the WireGuard handshake automatically, with no additional infrastructure.
+
+For deployments where engineering effort is at a premium and forward secrecy for the quantum component is not required, the PSK-slot approach is appropriate. For deployments handling sensitive long-lived data where the full HNDL threat model applies, the hybrid is strongly preferable.

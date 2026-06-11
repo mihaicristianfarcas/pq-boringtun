@@ -1,0 +1,244 @@
+% ============================================================================
+% Bibliography - Hybrid Post-Quantum WireGuard Thesis
+% ============================================================================
+
+@inproceedings{giacon2018combiners,
+    author    = {Giacon, Federico and Heuer, Felix and Poettering, Bertram},
+    title     = {{KEM} Combiners},
+    booktitle = {Public-Key Cryptography -- {PKC} 2018},
+    series    = {Lecture Notes in Computer Science},
+    volume    = {10769},
+    pages     = {190--218},
+    publisher = {Springer},
+    year      = {2018},
+    doi       = {10.1007/978-3-319-76578-5_7},
+    note      = {Security proof for concatenate-then-KDF hybrid construction. IACR ePrint 2018/024, \url{https://eprint.iacr.org/2018/024}},
+}
+
+@misc{ietf-tls-hybrid-design,
+    author       = {Stebila, Douglas and Fluhrer, Scott and Gueron, Shay},
+    title        = {Hybrid Key Exchange in {TLS} 1.3},
+    howpublished = {Internet-Draft draft-ietf-tls-hybrid-design-14},
+    year         = {2024},
+    institution  = {Internet Engineering Task Force},
+    url          = {https://datatracker.ietf.org/doc/html/draft-ietf-tls-hybrid-design-14},
+    note         = {Work in Progress},
+}
+
+@misc{rosenpass,
+    author       = {{Rosenpass Project}},
+    title        = {Rosenpass: Post-Quantum Secure {VPN} Key Exchange},
+    howpublished = {\url{https://rosenpass.eu/}},
+    year         = {2024},
+    note         = {Open-source post-quantum key exchange daemon for WireGuard},
+}
+
+@misc{rosenpass-github,
+    author       = {{Rosenpass Contributors}},
+    title        = {Rosenpass: Post-Quantum Secure Key Exchange for {WireGuard}},
+    howpublished = {GitHub repository},
+    url          = {https://github.com/rosenpass/rosenpass},
+    year         = {2024},
+}
+
+@article{membrey2025expressvpn,
+    author  = {Membrey, Peter and Beyel, Daan},
+    title   = {Hybrid Post-Quantum {WireGuard} via {TLS} {PSK} Delivery: A Production Deployment at Scale},
+    journal = {Engineering Archive (engrXiv)},
+    year    = {2025},
+    url     = {https://engrxiv.org/preprint/view/5020},
+    note    = {ExpressVPN's production deployment of PSK-based post-quantum WireGuard},
+}
+
+@inproceedings{hashimoto2026rkem,
+    author    = {Hashimoto, Keitaro and Katsumata, Shuichi and Niot, Emmanuel and Wiggers, Thom},
+    title     = {Revised {PQ-WireGuard} with Reinforced {KEMs}},
+    booktitle = {Proceedings of the 2026 {IEEE} Symposium on Security and Privacy ({S\&P})},
+    year      = {2026},
+    publisher = {IEEE},
+    note      = {Introduces Rebar RKEM construction. Preprint available at \url{https://eprint.iacr.org/2025/1758.pdf}},
+}
+
+@misc{boringtun,
+    author       = {{Cloudflare, Inc.}},
+    title        = {{BoringTun}: Userspace {WireGuard} Implementation in {Rust}},
+    howpublished = {GitHub repository},
+    url          = {https://github.com/cloudflare/boringtun},
+    year         = {2024},
+    note         = {Production-grade userspace WireGuard implementation deployed on millions of devices},
+}
+
+@misc{nist2030deprecation,
+    author       = {{Entrust Corporation}},
+    title        = {{NIST}'s Urgent Call: Deprecating Traditional Crypto by 2030},
+    howpublished = {Entrust Blog},
+    url          = {https://www.entrust.com/blog/2024/12/nists-urgent-call-deprecating-traditional-crypto-by-2030},
+    year         = {2024},
+    month        = dec,
+}
+
+@misc{sealsq2024quantum,
+    author       = {{SEALSQ}},
+    title        = {Quantum Risk Is No Longer Tomorrow's Problem: Why {U.S.} Organizations Must Act Now},
+    howpublished = {SEALSQ Blog},
+    url          = {https://www.sealsq.com/sealsq-blog/quantum-risk-is-no-longer-tomorrows-problem-why-u.s.-organizations-must-act-now},
+    year         = {2024},
+}
+
+% Additional standard references for completeness
+
+@inproceedings{donenfeld2017wireguard,
+    author    = {Donenfeld, Jason A.},
+    title     = {{WireGuard}: Next Generation Kernel Network Tunnel},
+    booktitle = {Proceedings of the 2017 Network and Distributed System Security Symposium ({NDSS})},
+    year      = {2017},
+    publisher = {Internet Society},
+    doi       = {10.14722/ndss.2017.23160},
+}
+
+@inproceedings{hulsing2021pqwireguard,
+    author    = {H{\"u}lsing, Andreas and Ning, Kai-Chun and Schwabe, Peter and Weber, Florian and Zimmermann, Philip R.},
+    title     = {{PQ-WireGuard}: Post-Quantum Key Exchange for {WireGuard} Protocol},
+    booktitle = {Proceedings of the 2021 {IEEE} Symposium on Security and Privacy ({S\&P})},
+    year      = {2021},
+    pages     = {304--321},
+    publisher = {IEEE},
+    doi       = {10.1109/SP40001.2021.00031},
+}
+
+@techreport{fips203,
+    author      = {{National Institute of Standards and Technology}},
+    title       = {{FIPS} 203: Module-Lattice-Based Key-Encapsulation Mechanism Standard},
+    institution = {U.S. Department of Commerce},
+    year        = {2024},
+    month       = aug,
+    type        = {Federal Information Processing Standards Publication},
+}
+
+@inproceedings{lafourcade2025hybrid,
+    author    = {Lafourcade, Pascal and Mahmoud, Dhekra and Ruhault, Sylvain},
+    title     = {A Tale of Two Worlds, a Formal Story of {WireGuard} Hybridization},
+    booktitle = {Proceedings of the 34th {USENIX} Security Symposium ({USENIX} Security 25)},
+    year      = {2025},
+    pages     = {4937--4956},
+    publisher = {USENIX Association},
+    url       = {https://www.usenix.org/conference/usenixsecurity25/presentation/lafourcade},
+    note      = {Formal analysis of Hybrid-WireGuard using Sapic+/ProVerif/DeepSec/Tamarin. IACR ePrint 2025/1179},
+}
+
+@misc{nist-sp800-56c,
+    author       = {{National Institute of Standards and Technology}},
+    title        = {{NIST} Special Publication 800-56C Rev. 2: Recommendation for Key-Derivation Methods in Key-Establishment Schemes},
+    year         = {2020},
+    institution  = {U.S. Department of Commerce},
+}
+
+@misc{rfc5869,
+    author       = {Krawczyk, Hugo and Eronen, Pasi},
+    title        = {{RFC} 5869: {HMAC}-based Extract-and-Expand Key Derivation Function ({HKDF})},
+    howpublished = {Internet Requests for Comments},
+    year         = {2010},
+    institution  = {Internet Engineering Task Force},
+}
+
+@misc{noise-protocol,
+    author       = {Perrin, Trevor},
+    title        = {The {Noise} Protocol Framework},
+    year         = {2018},
+    howpublished = {\url{https://noiseprotocol.org/}},
+}
+
+@inproceedings{dowling2018wireguard,
+    author    = {Dowling, Benjamin and Paterson, Kenneth G.},
+    title     = {A Cryptographic Analysis of the {WireGuard} Protocol},
+    booktitle = {Applied Cryptography and Network Security -- {ACNS} 2018},
+    series    = {Lecture Notes in Computer Science},
+    volume    = {10892},
+    pages     = {3--21},
+    publisher = {Springer},
+    year      = {2018},
+    doi       = {10.1007/978-3-319-93387-0_1},
+    note      = {Computational security proof for WireGuard},
+}
+
+@techreport{donenfeld2018formal,
+    author      = {Donenfeld, Jason A. and Milner, Kevin},
+    title       = {Formal Verification of the {WireGuard} Protocol},
+    institution = {WireGuard},
+    year        = {2018},
+    url         = {https://www.wireguard.com/papers/wireguard-formal-verification.pdf},
+    note        = {Tamarin-based symbolic proof of WireGuard's session-key secrecy and authentication properties},
+}
+
+@article{gidney2021factor,
+    author  = {Gidney, Craig and Eker{\aa}, Martin},
+    title   = {How to Factor 2048-bit {RSA} Integers in 8 Hours Using 20 Million Noisy Qubits},
+    journal = {Quantum},
+    volume  = {5},
+    pages   = {433},
+    year    = {2021},
+    doi     = {10.22331/q-2021-04-15-433},
+}
+
+@inproceedings{shor1994algorithms,
+    author    = {Shor, Peter W.},
+    title     = {Algorithms for Quantum Computation: Discrete Logarithms and Factoring},
+    booktitle = {Proceedings 35th Annual Symposium on Foundations of Computer Science ({FOCS})},
+    pages     = {124--134},
+    year      = {1994},
+    publisher = {IEEE},
+    doi       = {10.1109/SFCS.1994.365700},
+}
+
+@article{langlois2015worst,
+    author  = {Langlois, Adeline and Stehl{\'e}, Damien},
+    title   = {Worst-Case to Average-Case Reductions for Module Lattices},
+    journal = {Designs, Codes and Cryptography},
+    volume  = {75},
+    number  = {3},
+    pages   = {565--599},
+    year    = {2015},
+    doi     = {10.1007/s10623-014-9938-4},
+}
+
+@inproceedings{bos2018crystals,
+    author    = {Bos, Joppe and Ducas, L{\'e}o and Kiltz, Eike and Lepoint, Tancr{\`e}de and Lyubashevsky, Vadim and Schanck, John M. and Schwabe, Peter and Seiler, Gregor and Stehl{\'e}, Damien},
+    title     = {{CRYSTALS-Kyber}: A {CCA}-Secure Module-Lattice-Based {KEM}},
+    booktitle = {Proceedings of the 2018 {IEEE} European Symposium on Security and Privacy ({EuroS\&P})},
+    pages     = {353--367},
+    year      = {2018},
+    publisher = {IEEE},
+    doi       = {10.1109/EuroSP.2018.00032},
+}
+
+@misc{nistir8547,
+    author       = {{National Institute of Standards and Technology}},
+    title        = {{NIST} {IR} 8547: Transition to Post-Quantum Cryptography Standards (Initial Public Draft)},
+    year         = {2024},
+    institution  = {U.S. Department of Commerce},
+    note         = {Outlines 2030 deprecation and 2035 disallowance timeline for classical key exchange},
+}
+
+@misc{nsa-cnsa2,
+    author       = {{National Security Agency}},
+    title        = {Commercial National Security Algorithm Suite 2.0 ({CNSA} 2.0)},
+    year         = {2022},
+    howpublished = {\url{https://www.nsa.gov/}},
+    note         = {Post-quantum cryptographic requirements for national security systems},
+}
+
+@misc{pqnoise2022,
+    author       = {Angel, Yawning and Dowling, Benjamin and H{\"u}lsing, Andreas and Schwabe, Peter and Weber, Florian},
+    title        = {Post-Quantum {Noise}},
+    howpublished = {IACR ePrint 2022/539},
+    year         = {2022},
+    url          = {https://eprint.iacr.org/2022/539},
+    note         = {Framework for converting Noise patterns to post-quantum using KEMs},
+}
+@misc{criterion,
+    author       = {Heisler, Brook},
+    title        = {Criterion.rs: Statistics-driven Microbenchmarking in {Rust}},
+    howpublished = {\url{https://github.com/bheisler/criterion.rs}},
+    year         = {2024},
+    note         = {Benchmarking library with bootstrapped confidence intervals and outlier detection},
+}

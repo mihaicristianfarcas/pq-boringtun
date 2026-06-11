@@ -1,0 +1,86 @@
+\documentclass[12pt,a4paper,oneside]{report} 
+
+% Load math packages before style to avoid \Bbbk conflict with newpxmath
+\usepackage{amsmath,amssymb,amsthm}
+
+% Language and type configuration (UBB template)
+\usepackage[language=english, type=bachelor]{style}
+
+% Cleveref must be loaded after hyperref (which is in style.sty)
+\usepackage[capitalize,noabbrev]{cleveref}
+
+% PDF metadata and hyperref configuration (most is in style.sty)
+\hypersetup{
+    pdftitle={Hybrid Post-Quantum Key Exchange for WireGuard: Integrating ML-KEM into a Production Rust Userspace Implementation},
+    pdfauthor={Mihai-Cristian Farcaș},
+    pdfsubject={Bachelor's Thesis - Computer Science},
+    pdfkeywords={WireGuard, Post-Quantum Cryptography, ML-KEM, FIPS 203, Hybrid Key Exchange, Noise Protocol, Rust, BoringTun},
+}
+
+\begin{document}
+
+\specialization{Computer Science}
+\title{Hybrid Post-Quantum Key Exchange for WireGuard: Integrating ML-KEM into a Production Rust Userspace Implementation}   
+\author{Mihai-Cristian Farcaș}
+\supervisor{Sergiu Adrian Dărăbanț}
+
+\maketitle
+
+% Blank page after title
+\newpage
+\thispagestyle{empty}
+\mbox{}
+\newpage
+
+% Front matter with roman numerals
+\pagenumbering{roman}
+\setcounter{page}{1}
+
+% Abstract
+\chapter*{Abstract}
+\addcontentsline{toc}{chapter}{Abstract}
+\markboth{ABSTRACT}{ABSTRACT}
+
+WireGuard is now the dominant modern VPN protocol, valued for its small codebase, strong cryptography, and high performance. Its key exchange, however, relies entirely on X25519, which Shor's algorithm will break once a cryptographically relevant quantum computer exists. Under the harvest-now-decrypt-later threat model, adversaries may already be recording WireGuard-encrypted traffic today for future decryption, making migration urgent rather than speculative.
+
+\vspace{0.5cm}
+
+NIST finalized FIPS 203 in August 2024, standardizing ML-KEM (Module Lattice-based Key Encapsulation Mechanism), derived from CRYSTALS-Kyber. This thesis integrates ML-KEM-768 alongside X25519 into WireGuard's Noise IK handshake, producing a hybrid post-quantum key exchange. The implementation targets BoringTun, Cloudflare's production Rust userspace WireGuard, and is deployable without kernel modifications. A simpler baseline that injects ML-KEM-derived keying material into WireGuard's existing preshared-key (PSK) slot is also implemented as a lower bound on engineering effort. Both approaches are evaluated on Apple Silicon (M4) and ARM (Raspberry Pi 5 / Cortex-A76), measuring handshake latency and packet size overhead. An informal security argument shows the hybrid construction to be secure as long as at least one of X25519 or ML-KEM remains unbroken, and that it provides per-session forward secrecy that the PSK-slot approach cannot match. To our knowledge, this is the first FIPS 203-compliant hybrid WireGuard implementation built on a production Rust codebase.
+
+\vspace{1cm}
+
+\noindent\textbf{Keywords:} Post-Quantum Cryptography, WireGuard, ML-KEM, FIPS 203, Hybrid Key Exchange, Noise Protocol, Rust, BoringTun
+
+% Table of Contents
+\cleardoublepage
+\tableofcontents
+
+% List of Figures
+\cleardoublepage
+\listoffigures
+
+% List of Tables
+\cleardoublepage
+\listoftables
+
+% Main content with arabic numerals
+\cleardoublepage
+\pagenumbering{arabic}
+\setcounter{page}{1}
+
+\input{chapters/chapter1_introduction}
+\input{chapters/chapter2_background}
+\input{chapters/chapter3_related_work}
+\input{chapters/chapter4_problem}
+\input{chapters/chapter5_design}
+\input{chapters/chapter6_implementation}
+\input{chapters/chapter7_security}
+\input{chapters/chapter8_evaluation}
+\input{chapters/chapter9_discussion}
+\input{chapters/chapter10_conclusions}
+
+% Bibliography
+\cleardoublepage
+\bibliography{references}
+
+\end{document}

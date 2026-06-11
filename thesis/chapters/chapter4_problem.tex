@@ -1,0 +1,18 @@
+\chapter{Problem Statement}
+\label{chap:problem}
+
+This thesis addresses the following research question: \emph{How can WireGuard's handshake be extended with hybrid post-quantum key exchange (X25519 + ML-KEM-768) while preserving its security properties and remaining viable on resource-constrained hardware?}
+
+More concretely, this involves four subproblems:
+
+\begin{description}[style=nextline, leftmargin=0pt]
+    \item[SP1 (Handshake Integration)] How should ML-KEM-768 be integrated into the Noise IK handshake alongside X25519? What is the correct message flow, and how are the two shared secrets combined?
+    
+    \item[SP2 (Key Derivation)] How should the shared secrets from X25519 and ML-KEM be combined to produce the final session keys, in a way that is consistent with NIST SP 800-56C and preserves the security argument?
+    
+    \item[SP3 (MTU Management)] ML-KEM-768 adds 1,184 bytes (public key) and 1,088 bytes (ciphertext) to the handshake messages. How should the implementation handle handshake messages that exceed typical MTU limits?
+    
+    \item[SP4 (Performance)] What is the actual cost of the hybrid construction in handshake latency on Apple Silicon and ARM hardware? How does it compare to unmodified WireGuard and to the PSK-slot baseline?
+\end{description}
+
+The PSK-slot approach is implemented as a controlled comparison point---the minimal engineering intervention that provides quantum resistance against passive HNDL adversaries---so that the additional benefit of the full hybrid can be clearly quantified.

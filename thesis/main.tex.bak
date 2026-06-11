@@ -1,0 +1,699 @@
+\documentclass{article}
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{microtype}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage[colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue]{hyperref}
+\usepackage[backend=biber, style=numeric, sorting=none, doi=true, url=true, isbn=false]{biblatex}
+\addbibresource{references.bib}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  backgroundcolor=\color{gray!10},
+  numbers=none,
+  tabsize=2,
+}
+
+\title{Hybrid Post-Quantum Key Exchange for WireGuard: Integrating ML-KEM into a Production Rust Userspace Implementation}
+\author{}
+\date{}
+\begin{document}
+\maketitle
+
+\section{Hybrid Post-Quantum Key Exchange for WireGuard: Integrating ML-KEM into a Production Rust Userspace Implementation}
+
+\textbf{Author:} Mihai-Cristian Farcaș
+\textbf{Supervisor:} Sergiu Adrian Dărăbanț
+\textbf{Department of Computer Science, Babeș-Bolyai University, February 2026}
+
+\noindent\rule{\textwidth}{0.4pt}
+
+\subsection{Abstract}
+
+WireGuard has established itself as the premier modern VPN tunneling protocol, combining a minimal codebase with strong cryptographic guarantees and exceptional performance. However, its key exchange mechanism relies exclusively on X25519, an elliptic-curve Diffie-Hellman scheme that is vulnerable to Shor's algorithm once a cryptographically-relevant quantum computer becomes available. The harvest-now-decrypt-later threat model means that adversaries may already be collecting WireGuard-encrypted traffic today with the intent to decrypt it in the future, making the urgency of migration concrete rather than merely theoretical.
+
+In August 2024, NIST finalized FIPS 203, standardizing ML-KEM (Module Lattice-based Key Encapsulation Mechanism), the algorithm derived from CRYSTALS-Kyber and designed to resist quantum adversaries. This thesis implements a hybrid post-quantum key exchange for WireGuard by integrating ML-KEM-768 alongside X25519 into the Noise IK handshake. The implementation targets BoringTun, Cloudflare's production-grade userspace WireGuard implementation written in Rust, making it deployable without kernel modifications. A secondary, simpler baseline injects ML-KEM-derived keying material into WireGuard's existing preshared-key (PSK) slot, serving as a lower-bound on engineering effort. The thesis evaluates both approaches across three hardware platforms — Apple Silicon (M4), ARM (Raspberry Pi 5 / Cortex-A76), and x86\_64 — measuring handshake latency, packet size increases, and MTU fragmentation behavior. An informal security argument shows that the hybrid construction is secure as long as at least one component (X25519 or ML-KEM) remains unbroken, and that it provides per-session forward secrecy in a way the PSK-slot approach cannot. To the best of our knowledge, this is the first FIPS 203-compliant hybrid WireGuard implementation targeting a real-world Rust codebase.
+
+\noindent\rule{\textwidth}{0.4pt}
+
+\subsection{1. Introduction}
+
+The internet runs on public-key cryptography. Every VPN tunnel, every TLS handshake, every SSH connection depends on the computational hardness of mathematical problems — integer factorization, discrete logarithm, elliptic-curve discrete logarithm — that classical computers cannot efficiently solve for sufficiently large parameters. This assumption has been safe for decades. It will not remain safe indefinitely.
+
+In 1994, Peter Shor published a polynomial-time quantum algorithm that solves both integer factorization and the discrete logarithm problem, the two foundations on which RSA and elliptic-curve cryptography rest. A sufficiently large, fault-tolerant quantum computer running Shor's algorithm would render all currently deployed public-key key exchange obsolete, simultaneously. The security community has understood this threat since the 1990s, but practical quantum computers were too small and noisy to matter. That window is narrowing. Recent estimates suggest that RSA-2048 could be broken with on the order of millions of physical qubits given current error-correction techniques, and roadmaps from IBM, Google, and others trace plausible paths to that scale within the coming decade or two.
+
+The cryptographic community's response has been the NIST Post-Quantum Cryptography (PQC) Standardization Project, launched in 2016 and concluded, for its first round of standards, in August 2024. NIST finalized three standards: FIPS 203 (ML-KEM, for key encapsulation), FIPS 204 (ML-DSA, for digital signatures), and FIPS 205 (SLH-DSA, hash-based signatures). Of these, ML-KEM is the standard most immediately relevant to VPN key exchange. NIST has further announced that classical key exchange algorithms will be deprecated by 2030 and fully disallowed by 2035, giving practitioners a concrete, binding timeline for migration.
+
+WireGuard represents a particularly important migration target. Since its introduction by Jason Donenfeld in 2017, WireGuard has become the dominant modern VPN protocol, replacing IPsec and OpenVPN in many deployments due to its simplicity, auditability, and performance. It is now built into the Linux kernel, ships in every major operating system, and is deployed at scale by Cloudflare, Mullvad, NordVPN, Tailscale, and countless enterprises. WireGuard's cryptographic design is intentionally opinionated: it uses a fixed, non-negotiable cipher suite. This is a security strength — cipher agility has historically been a major source of vulnerabilities — but it is a migration challenge, because there is no built-in mechanism to negotiate alternative key exchange algorithms.
+
+WireGuard does, however, provide two natural handles for post-quantum augmentation. The first is the preshared-key (PSK) slot, a 256-bit symmetric key that is mixed into the handshake's key derivation chain. If a post-quantum KEM is used out-of-band to establish this PSK, the resulting handshake is quantum-resistant against passive adversaries, at the cost of requiring separate key distribution infrastructure. The second approach is to modify the Noise IK handshake itself, embedding ML-KEM operations alongside the existing X25519 exchange so that both shared secrets contribute to the final session key in every handshake. The latter is what this thesis calls the full hybrid approach.
+
+This thesis makes the following contributions. First, it implements the PSK-slot baseline: a lightweight companion program that performs ML-KEM-768 key encapsulation between two peers out-of-band and injects the resulting 256-bit key into BoringTun's preshared\_key field. Second, it implements the full hybrid: a modified BoringTun whose handshake module performs both X25519 and ML-KEM-768 operations in every handshake, combining the two shared secrets via HKDF, without requiring any changes to the data-transport phase. Third, it evaluates both implementations on three hardware platforms, measuring handshake overhead and packet-size behavior across a range of MTU conditions. Fourth, it provides a security analysis comparing the two approaches and discussing their relative suitability for real-world deployment.
+
+The remainder of this thesis is organized as follows. Section 2 provides the background on quantum computing threats, the WireGuard protocol, the Noise framework, and the ML-KEM standard. Section 3 reviews related work. Section 4 states the problem formally. Section 5 describes the design of both implementations. Section 6 covers the implementation details. Section 7 presents the security analysis. Section 8 contains the evaluation. Section 9 discusses implications, limitations, and future work. Section 10 concludes.
+
+\noindent\rule{\textwidth}{0.4pt}
+
+\subsection{2. Background}
+
+\subsubsection{2.1 The Quantum Threat and Public-Key Cryptography}
+
+Modern public-key cryptography rests on computational hardness assumptions. RSA relies on the difficulty of factoring the product of two large primes. Diffie-Hellman key exchange and its elliptic-curve variant (ECDH, including the X25519 used in WireGuard) rely on the difficulty of computing discrete logarithms in either a prime-order group or on an elliptic curve. These problems are believed to be classically hard — no polynomial-time classical algorithm is known for any of them at cryptographically relevant parameters.
+
+Shor's algorithm changes this picture fundamentally. Given a fault-tolerant quantum computer with sufficiently many qubits, Shor's algorithm solves the integer factorization problem and the discrete logarithm problem in polynomial time. The computational speedup is exponential relative to the best known classical algorithms. In practical terms, a quantum computer running Shor's algorithm would be able to derive an X25519 private key from a public key, compute a Curve25519 shared secret, and break any session key derived from it.
+
+The immediate practical threat comes from the harvest-now-decrypt-later (HNDL) attack model. An adversary without a quantum computer today can passively record encrypted network traffic — including WireGuard handshakes and transport data — and store it indefinitely. When a sufficiently powerful quantum computer becomes available, the adversary can recover the X25519 private keys from the stored public keys, reconstruct all ephemeral shared secrets from stored handshakes, and decrypt all stored traffic. This threat is active right now: traffic encrypted today with classical-only key exchange is potentially already compromised, even if quantum computers do not yet exist at the required scale.
+
+Symmetric cryptography is largely unaffected by Shor's algorithm. Grover's algorithm provides a quadratic speedup for unstructured search, which halves the effective key length of symmetric ciphers. AES-256, with its 256-bit key, retains an effective security level of 128 bits against quantum adversaries — still considered sufficient. ChaCha20-Poly1305, BLAKE2s, and HKDF, which form the rest of WireGuard's symmetric layer, are similarly unaffected. The migration challenge is exclusively at the asymmetric key exchange layer.
+
+NIST has responded with a structured standardization effort, selecting ML-KEM for key encapsulation, ML-DSA for signatures, and SLH-DSA for hash-based signatures. The transition timeline is concrete: classical key exchange algorithms (RSA, ECDH, ECDSA) will be deprecated after 2030 and completely disallowed after 2035. For organizations handling sensitive long-lived data, this timeline must be compressed further: data that must remain confidential past 2035 is already at risk from HNDL attacks if protected only by classical key exchange.
+
+\subsubsection{2.2 WireGuard: Protocol Design and Architecture}
+
+WireGuard, introduced at NDSS 2017 by Donenfeld, is a layer-3 VPN protocol designed around a small number of modern cryptographic primitives and a deliberately minimal state machine.  Its design philosophy is deliberate conservatism: it uses a fixed cipher suite with no algorithm negotiation, a single round-trip handshake, and fewer than 4,000 lines of implementation code. 
+
+The core cryptographic design uses Trevor Perrin's Noise Protocol Framework for the handshake, specifically the IK pattern, combined with X25519 for Diffie-Hellman key exchange, HKDF for key derivation, ChaCha20-Poly1305 for authenticated encryption of transport data, and BLAKE2s for hashing. 
+
+WireGuard's networking model is built around a concept called cryptokey routing: each peer is identified by a 32-byte Curve25519 public key, and the interface maintains a mapping from public keys to allowed IP address ranges.  This means that IP-level authentication is cryptographically derived — any packet arriving on a WireGuard interface has a reliably authenticated source IP, provided the underlying session was established correctly. 
+
+The handshake produces a 1-RTT session. The initiator sends a first message that authenticates both the initiator's identity (via the static public key) and commits an ephemeral Curve25519 key. The responder verifies the initiator's identity, generates its own ephemeral key, and sends a response message. After the response is processed, both parties independently derive the same pair of symmetric session keys using HKDF. Transport data subsequently flows in UDP packets using ChaCha20-Poly1305 with a nonce counter. 
+
+WireGuard's timer state machine handles session lifecycle automatically: sessions rekey after 120 seconds or after 2\textasciicircum{}60 transport messages, whichever comes first.  All ephemeral keys and intermediate cryptographic material are zeroed from memory after use. 
+
+A notable feature is WireGuard's approach to denial-of-service resistance. The responder never stores state for unauthenticated packets, making it completely invisible to scanners and greatly limiting the impact of resource-exhaustion attacks.  A cookie mechanism allows the responder to offload work to the initiator when under load. 
+
+WireGuard has demonstrated significant performance advantages over legacy VPN protocols. In Donenfeld's benchmarks, WireGuard achieved approximately 0.403ms ping times and was capable of saturating a gigabit Ethernet link, outperforming OpenVPN and both AES-GCM and ChaCha20 modes of IPsec.  
+
+2.2.1 The PSK SlotWireGuard includes an optional pre-shared symmetric key (PSK) feature, added specifically to provide a measure of post-quantum protection.  When configured, this 256-bit symmetric key is mixed into the HKDF key derivation chain during the handshake, adding a layer of symmetric-key cryptography on top of the X25519 exchange. The design intent is that even if a quantum computer eventually breaks X25519, an attacker who did not also obtain the PSK at the time of the session cannot decrypt the traffic. 
+
+The PSK mechanism was explicitly designed as a transitional measure for "the extremely paranoid." Its limitations are structural: the PSK is a long-lived static value, not an ephemeral secret, so it does not provide forward secrecy for the quantum-resistant component. If the PSK itself is compromised — whether through theft, misconfiguration, or an insider — all sessions protected by it are retrospectively vulnerable. Distribution and rotation of PSKs also requires an out-of-band channel, shifting operational complexity to deployment teams.
+
+\subsubsection{2.3 The Noise Protocol Framework}
+
+Noise, designed by Trevor Perrin, is a framework for building authenticated key exchange protocols from a small set of cryptographic patterns. A Noise pattern specifies the sequence of messages exchanged between an initiator and a responder, along with the Diffie-Hellman operations performed at each step and the order in which public keys become known to each party.
+
+WireGuard uses the IK pattern, named for the key knowledge states at initialization: the initiator knows the responder's static public key (I = initiator static known, K = responder static key pre-shared). The pattern provides one-round-trip authenticated key exchange, initiator authentication, and strong identity hiding for both parties. 
+
+Noise protocols maintain two running state values: a chaining key (ck) and a handshake hash (h). Each DH operation, public key transmission, and encrypted payload is mixed into these values via HKDF and BLAKE2s, building a transcript hash that cryptographically binds all handshake messages together. The session keys at the end of the handshake are derived from the final value of ck.
+
+The fundamental challenge in migrating Noise to post-quantum cryptography is that Noise's design is deeply entangled with the algebraic properties of Diffie-Hellman. DH provides non-interactive key exchange: the initiator can compute g\textasciicircum{}(ab) from the responder's public key g\textasciicircum{}b and its own private key a, and vice versa, without any interaction. KEMs work differently: one party generates a ciphertext that encapsulates a secret to a specific public key, and only the holder of the corresponding private key can decapsulate it. This fundamental asymmetry requires careful redesign of the handshake flow.
+
+\subsubsection{2.4 ML-KEM (FIPS 203)}
+
+ML-KEM, standardized as FIPS 203 in August 2024, is a key encapsulation mechanism derived from CRYSTALS-Kyber and designed by a team including Peter Schwabe, Roberto Avanzi, Joppe Bos, Léo Ducas, Eike Kiltz, Tancrède Lepoint, Vadim Lyubashevsky, John Schanck, Gregor Seiler, Damien Stehlé, and Jintai Ding. 
+
+A KEM provides three algorithms: KeyGen (generates an encapsulation key and decapsulation key), Encaps (takes an encapsulation key and produces a ciphertext and a shared secret), and Decaps (takes the decapsulation key and ciphertext and recovers the shared secret).  If randomness generation is correct, the shared secrets produced by Encaps and recovered by Decaps are always equal. 
+
+The security of ML-KEM rests on the Module Learning With Errors (MLWE) problem, introduced by Regev in 2005 and generalized to module lattices by Langlois and Stehlé.  The MLWE problem asks: given a matrix A, vectors b = As + e for small error e and secret s, distinguish (A, b) from uniform random. No efficient quantum algorithm is known for this problem; the best attacks remain classical lattice reduction algorithms whose complexity scales superpolynomially with the security parameter.
+
+ML-KEM is constructed in two steps. First, a public-key encryption scheme K-PKE is built from the MLWE problem. K-PKE is IND-CPA secure — that is, secure against chosen-plaintext attacks — but not IND-CCA2 secure. The IND-CCA2 security required for use in key exchange is obtained by applying the Fujisaki-Okamoto transform, which converts the PKE scheme into a KEM with the stronger security guarantee.  The scheme has been formally machine-checked, including a full proof of IND-CCA2 security in EasyCrypt.
+
+FIPS 203 specifies three parameter sets: ML-KEM-512 (NIST security category 1, equivalent to AES-128), ML-KEM-768 (category 3, equivalent to AES-192), and ML-KEM-1024 (category 5, equivalent to AES-256).  The key and ciphertext sizes are as follows: ML-KEM-512 has a 800-byte encapsulation key and 768-byte ciphertext; ML-KEM-768 has a 1,184-byte encapsulation key and 1,088-byte ciphertext; ML-KEM-1024 has a 1,568-byte encapsulation key and 1,568-byte ciphertext. All three produce a 32-byte shared secret.  NIST recommends ML-KEM-768 as the default parameter set, providing a large security margin at reasonable performance cost. 
+
+An important implementation detail is the Number-Theoretic Transform (NTT), which allows polynomial multiplications in ML-KEM to be computed efficiently, contributing significantly to its performance advantage over classical ECDH.  In practice, ML-KEM operations are substantially faster than X25519 in CPU cycles, as demonstrated by benchmarks on Intel Xeon hardware where Kyber-768 key generation, encapsulation, and decapsulation were each roughly 3-4x faster than the corresponding X25519 operations.  The performance advantage of ML-KEM over X25519 in CPU cycles is more than offset by the larger key and ciphertext sizes, which dominate handshake time in network-bound scenarios.
+
+\subsubsection{2.5 Hybrid Key Exchange and the Concatenate-then-KDF Pattern}
+
+Hybrid key exchange refers to combining two or more key exchange algorithms in a way that the resulting key is secure as long as at least one component remains unbroken. The primary motivation is the transitional period: ML-KEM, though standardized, is far newer than X25519 and has received less cryptanalytic scrutiny. Using both simultaneously ensures that a cryptanalytic breakthrough against either does not compromise security.
+
+The standard construction is the concatenate-then-KDF pattern, formalized in NIST SP 800-56C Rev. 2. SP 800-56C explicitly permits hybrid shared secrets of the form Z' = Z || T, a concatenation of a "standard" shared secret Z (e.g., from X25519) and an auxiliary shared secret T (e.g., from ML-KEM), fed into a single key derivation function.   Machine-checked proofs of security for this construction confirm that the resulting KEM is IND-CPA-secure provided either component is IND-CPA-secure, with the bound remaining tight even when one component is completely broken. \cite{httpseprintiacrorg202397nd1} 
+
+This is the same pattern used by Cloudflare and Google in TLS 1.3 and by the IETF hybrid TLS design draft, which specifies X25519+ML-KEM hybrid groups for TLS key exchange. \cite{httpsdatatrackerietforgdnd2} 
+
+\noindent\rule{\textwidth}{0.4pt}
+
+\subsection{3. Related Work}
+
+\subsubsection{3.1 PQ-WireGuard (Hülsing et al., 2021)}
+
+The most directly related prior work is PQ-WireGuard, published at IEEE S\&P 2021 by Hülsing, Ning, Schwabe, Weber, and Zimmermann.  PQ-WireGuard replaces WireGuard's DH-based handshake entirely with a KEM-based construction, eliminating X25519 rather than augmenting it. The approach is a full post-quantum replacement rather than a hybrid. Its primary motivation was full post-quantum authentication, not just post-quantum confidentiality. 
+
+The generic construction is instantiated with Classic McEliece (for IND-CCA authentication, the static-key KEM) and a passive-security variant of Saber (for IND-CPA ephemeral key exchange).  This choice was driven by the desire to fit handshake messages within the IPv6 minimum MTU of 1,280 bytes. Classic McEliece provides code-based security assumptions that are independent of lattice problems, offering diversity in the security foundation.
+
+PQ-WireGuard's security is proved in the eCK-PFS-PSK computational model, adapting the security proof for classical WireGuard, and verified in the symbolic model using Tamarin.  The security proof demonstrates that the protocol achieves session-key secrecy including perfect forward secrecy. 
+
+Benchmarks show PQ-WireGuard achieves a 60\% faster handshake than native WireGuard, a result explained by the computational advantage of post-quantum KEMs over ECDH.  However, this thesis differs from PQ-WireGuard in three important respects: it targets a hybrid construction rather than a purely post-quantum one, it uses the NIST-standardized ML-KEM rather than pre-standardization Saber, and it implements within the existing BoringTun codebase rather than a prototype.
+
+\subsubsection{3.2 Post-Quantum Noise (PQNoise)}
+
+Angel, Dowling, Hülsing, Schwabe, and Weber introduced PQNoise, a generic framework for converting Noise protocol patterns into post-quantum equivalents using KEMs.  PQNoise introduces new token types — ekem and skem — to represent KEM encapsulations to ephemeral and static public keys respectively, replacing the two-letter DH tokens (ee, es, se, ss). 
+
+A key challenge addressed by PQNoise is that KEMs cannot be combined non-interactively in the way DH key shares can. When the sending party owns a static key, they cannot simply compute a DH share with the other party's ephemeral key; instead, the other party must perform the encapsulation and send the ciphertext. This asymmetry sometimes requires additional round trips compared to the classical Noise patterns. 
+
+PQNoise also introduces Static-Ephemeral Entropy Combination (SEEC), a technique for hardening randomness in KEM operations to protect against weak random number generators.  The security of PQNoise patterns is proved in the flexible ACCE (fACCE) model, showing that confidentiality and authenticity are preserved. 
+
+PQNoise benchmarks using Kyber-768 on a 1,000 Mbit/s network show handshake times of 31.1ms, better than classical Noise in CPU time but slower in wall-clock time due to larger messages.  PQNoise is relevant to this thesis as it defines the theoretical framework within which the hybrid handshake construction sits; the WireGuard IK pattern can be viewed as a specific instantiation of a Noise pattern, and the hybrid variant described in this thesis can be understood as a variant of the pqIK pattern augmented with classical DH.
+
+\subsubsection{3.3 A Tale of Two Worlds: Formal Hybrid-WireGuard Analysis}
+
+Lafourcade, Mahmoud, Ruhault, and Taleb (2025) conducted a comprehensive formal analysis of PQ-WireGuard and proposed two improvements: PQ-WireGuard⋆ and Hybrid-WireGuard.  Their analysis, carried out using the Sapic+ framework with ProVerif, DeepSec, and Tamarin, uncovered weaknesses in the original PQ-WireGuard: specifically, vulnerability to Unknown-Key-Share (UKS) attacks and failure to achieve initiator/responder anonymity. 
+
+PQ-WireGuard⋆ addresses these issues through modifications to the key derivation that incorporate both parties' static public keys, preventing the UKS attack.  Hybrid-WireGuard is then constructed by combining the DH secrets from WireGuard with the KEM secrets from PQ-WireGuard⋆ via concatenation, and formally proving that security holds as long as either the classical or post-quantum component is secure.  
+
+Crucially for this thesis, the paper also observes that MTU considerations heavily constrain the choice of KEM: WireGuard's handshake messages must fit within typical IPv6 MTU limits, which severely limits the usable post-quantum algorithms at the 1,280-byte boundary.  The Hybrid-WireGuard implementation is provided in Rust. 
+
+This thesis builds on these results but differs in targeting the NIST-standardized ML-KEM within the existing BoringTun production codebase, explicitly handling the MTU fragmentation problem rather than constraining the parameter set to avoid it, and providing empirical benchmarks across multiple hardware platforms.
+
+\subsubsection{3.4 Rosenpass}
+
+Rosenpass is an open-source implementation of a post-quantum key exchange for WireGuard, distributed as a standalone Rust daemon that generates PSKs and injects them into WireGuard's preshared key field. \cite{httpsrosenpasseund3}  It uses Classic McEliece for static-key authentication (IND-CCA) and Kyber-512 for ephemeral key exchange (IND-CPA), matching the PQ-WireGuard protocol. \cite{httpsgithubcomrosenpassrnd4} 
+
+Rosenpass refreshes the PSK every two minutes, which means that at most two minutes of traffic is exposed if an adversary compromises the PSK. It has been formally analyzed in ProVerif and underwent a penetration test in 2024. The PSK-slot approach used by Rosenpass is structurally similar to the baseline described in this thesis, except that Rosenpass runs continuously as a daemon rather than performing a one-time key injection. Rosenpass provides a practical existence proof that PSK-based post-quantum WireGuard is deployable today.
+
+The key limitation Rosenpass shares with this thesis's PSK baseline is the lack of in-handshake forward secrecy: if the PSK at the time of a session is later compromised, that session's traffic is at risk. The hybrid handshake approach addresses this by integrating ML-KEM into the Noise handshake itself, making the ML-KEM shared secret ephemeral and session-specific.
+
+\subsubsection{3.5 Hybrid Post-Quantum WireGuard via TLS PSK Delivery}
+
+Membrey and Beyel (ExpressVPN, 2025) describe a production-deployed PSK-slot approach where ML-KEM hybrid TLS 1.3 is used to deliver the WireGuard PSK over a split-service authentication architecture. \cite{httpsengrxivorgpreprintvnd5}  This architecture has been deployed across ExpressVPN's global infrastructure, demonstrating 15-20ms additional connection establishment time with no impact on steady-state throughput. This is a more operationally elaborate version of the PSK-slot approach and demonstrates commercial viability of the simpler baseline at scale.
+
+\subsubsection{3.6 Revised PQ-WireGuard with Reinforced KEMs}
+
+A concurrent line of work by Hashimoto, Katsumata, Niot, and Wiggers (IEEE S\&P 2026) revisits the design of PQ-WireGuard and introduces reinforced KEMs (RKEMs) as a new building block. Their construction, using a novel ML-KEM-based RKEM called Rebar, eliminates the need for Classic McEliece static keys on the server, reducing the server's public key memory requirements by 190-390x. This work addresses a major deployment concern with the original PQ-WireGuard and represents the state of the art in purely post-quantum WireGuard design. \cite{httpseprintiacrorg202517nd6} 
+
+\noindent\rule{\textwidth}{0.4pt}
+
+\subsection{4. Problem Statement}
+
+This thesis addresses the following research question: how can WireGuard's handshake be extended with hybrid post-quantum key exchange (X25519 + ML-KEM-768) while preserving its security properties and remaining viable on resource-constrained hardware? 
+
+More concretely, this involves four subproblems:
+
+\textbf{SP1 (Handshake integration):} How should ML-KEM-768 be integrated into the Noise IK handshake alongside X25519? What is the correct message flow, and how are the two shared secrets combined?
+
+\textbf{SP2 (Key derivation):} How should the shared secrets from X25519 and ML-KEM be combined to produce the final session keys, in a way that is consistent with NIST SP 800-56C and preserves the security argument?
+
+\textbf{SP3 (MTU management):} ML-KEM-768 adds 1,184 bytes (public key) and 1,088 bytes (ciphertext) to the handshake messages. How should the implementation handle handshake messages that exceed typical MTU limits? 
+
+\textbf{SP4 (Performance):} What is the actual cost of the hybrid construction in handshake latency, across Apple Silicon, ARM, and x86\_64 platforms? How does it compare to unmodified WireGuard and to the PSK-slot baseline?
+
+The PSK-slot approach is implemented as a controlled comparison point — the minimal engineering intervention that provides quantum resistance against passive HNDL adversaries — so that the additional benefit of the full hybrid can be clearly quantified.
+
+\noindent\rule{\textwidth}{0.4pt}
+
+\subsection{5. Design}
+
+\subsubsection{5.1 Design Goals}
+
+The design is guided by the following principles, listed in order of priority:
+
+\textbf{Correctness:} The hybrid handshake must produce the same session keys at both endpoints and must fail securely if either component KEM fails. The correctness of the X25519 component is inherited from the existing BoringTun implementation.
+
+\textbf{Security:} The hybrid construction must be secure against a quantum adversary as long as at least one of X25519 or ML-KEM-768 remains unbroken. It must preserve all existing WireGuard security properties: session-key secrecy, perfect forward secrecy, replay resistance, and DoS resistance.
+
+\textbf{Compatibility:} The implementation should coexist with unmodified WireGuard peers where possible. The PSK-slot baseline achieves this by design. The full hybrid requires protocol-level negotiation or explicit configuration of both parties to use the hybrid mode.
+
+\textbf{Deployability:} The implementation should run on BoringTun without kernel modifications, enabling deployment on any platform that supports userspace WireGuard, including embedded and IoT devices.
+
+\textbf{Performance:} The overhead of ML-KEM operations should not dominate handshake latency at typical network speeds. Performance on Raspberry Pi 5 is treated as the binding constraint for constrained hardware.
+
+\subsubsection{5.2 The PSK-Slot Baseline}
+
+The PSK-slot approach is the minimal quantum-resistant intervention: a standalone binary that performs ML-KEM-768 key encapsulation between two peers, derives a 256-bit shared secret, and injects it into the BoringTun preshared\_key field. The WireGuard handshake then proceeds identically to the vanilla case.
+
+The flow is as follows. Before any WireGuard session is established, the two peers execute the PSK exchange out-of-band. One peer (call it the encapsulating peer) generates an ML-KEM-768 keypair and transmits the encapsulation key to the other peer (the decapsulating peer). The decapsulating peer runs ML-KEM.Encaps, producing a ciphertext ct and a 32-byte shared secret K. The ciphertext ct is sent back to the first peer, which runs ML-KEM.Decaps to recover the same K. Both peers then configure their WireGuard interface with preshared\_key = K.
+
+The PSK is then mixed into the WireGuard handshake's HKDF chain, providing a quantum-resistant layer of security for all traffic protected by sessions using that PSK. 
+
+The structural limitations of this approach are important. The ML-KEM keypair used in the out-of-band exchange is static or semi-static; it does not participate in per-handshake ephemeral exchange, so the ML-KEM component does not provide forward secrecy.  If the PSK is compromised after the session, all traffic in sessions using that PSK is at risk for the period during which the PSK was in use. Additionally, the PSK must be distributed before sessions are established, which adds operational complexity. 
+
+Despite these limitations, the PSK baseline is valuable: it requires no changes to WireGuard itself, is immediately deployable with any WireGuard implementation, and provides protection against the HNDL threat for passive adversaries who cannot compromise the PSK out-of-band channel.
+
+\subsubsection{5.3 The Hybrid Handshake}
+
+The full hybrid integrates ML-KEM-768 directly into the Noise IK handshake. The design follows the concatenate-then-KDF pattern endorsed by NIST SP 800-56C Rev. 2 and is structurally similar to the hybrid constructions in TLS 1.3. 
+
+The modified handshake proceeds as follows:
+
+\textbf{Initiator actions (first message):}The initiator generates an ephemeral X25519 keypair as in standard WireGuard. Additionally, it generates a fresh ML-KEM-768 keypair for this session: an encapsulation key ek\_i and decapsulation key dk\_i. The ML-KEM encapsulation key ek\_i (1,184 bytes) is appended to the initiator's first message, after the existing WireGuard fields. The initiator sends: [WireGuard initiator header | X25519 ephemeral public key | encrypted static public key | encrypted timestamp | MAC1 | MAC2 | ML-KEM-768 encapsulation key]. 
+
+\textbf{Responder actions (second message):}The responder processes the X25519 portion of the handshake as in standard WireGuard. It also reads the initiator's ML-KEM encapsulation key ek\_i from the first message. The responder runs ML-KEM.Encaps(ek\_i), producing a ciphertext ct (1,088 bytes) and a shared secret ss\_kem. The ciphertext ct is appended to the responder's second message. The responder sends: [WireGuard responder header | X25519 ephemeral public key | encrypted empty payload | MAC1 | MAC2 | ML-KEM-768 ciphertext]. 
+
+\textbf{Initiator decapsulation:}The initiator reads ct from the responder's message and runs ML-KEM.Decaps(dk\_i, ct), recovering ss\_kem. Both peers now hold the same ss\_kem.
+
+\textbf{Combined key derivation:}Both parties derive the final session keys by combining the X25519 shared secrets (ss\_x25519\_ee, ss\_x25519\_es from the Noise IK pattern) and the ML-KEM shared secret (ss\_kem) via HKDF, following the concatenation pattern from NIST SP 800-56C Rev. 2. The combined input to the HKDF is: ss\_x25519\_ee || ss\_x25519\_es || ss\_kem. This concatenated value replaces the standard WireGuard key derivation input, with all other Noise IK state (the chaining key ck, handshake hash h) preserved unchanged. 
+
+\textbf{Transport phase:}After key derivation, the data transport phase proceeds identically to unmodified WireGuard. No changes are required to the ChaCha20-Poly1305 transport encryption or the session management layer. 
+
+This design ensures several important properties. First, per-session forward secrecy is provided by both components: the X25519 ephemeral key is fresh for each handshake, and the ML-KEM keypair is also generated fresh per handshake, so ss\_kem is unique and ephemeral.  Second, the construction is hybrid-secure: even if ML-KEM is completely broken (ss\_kem is known to an adversary), the session key still depends on the X25519 exchange and cannot be derived without breaking X25519. Conversely, if X25519 is broken by a quantum adversary, the session key still depends on ss\_kem and cannot be derived without breaking ML-KEM.
+
+\subsubsection{5.4 Key Derivation Details}
+
+The key derivation in the hybrid handshake follows the two-step approach from NIST SP 800-56C Rev. 2.  The standard HKDF construction (RFC 5869) is used, which itself implements the Extract-then-Expand paradigm.
+
+In the standard WireGuard Noise IK handshake, the chaining key ck evolves through a sequence of HKDF-based mixing operations as shared secrets are established. In the hybrid, the ML-KEM shared secret ss\_kem is mixed into the chaining key at the end of the Noise IK handshake, before the final session key derivation step. Concretely:
+
+\begin{enumerate}
+\item The standard Noise IK chaining key derivation proceeds: ck is updated with ss\_x25519\_ee (ephemeral-ephemeral DH) and then with ss\_x25519\_es (ephemeral-static DH) and ss\_x25519\_se (static-ephemeral DH), as in standard WireGuard.
+\end{enumerate}
+
+\begin{enumerate}
+\item A final HKDF mixing step mixes ss\_kem into ck: (ck', T) = HKDF(ck, ss\_kem, 2). This matches the NIST SP 800-56C Rev. 2 requirement that the hybrid shared secret Z' = Z || T is processed by the key derivation function in a single step. 
+\end{enumerate}
+
+\begin{enumerate}
+\item The final session key pair (send\_key, recv\_key) is derived from ck' as in standard WireGuard.
+\end{enumerate}
+
+BLAKE2s is used for the handshake hash h, and the HKDF uses BLAKE2s as its underlying PRF, consistent with BoringTun's existing implementation. This maintains the integrity of the Noise transcript hash binding.
+
+\subsubsection{5.5 Message Size Analysis and MTU Considerations}
+
+The most significant engineering challenge in the hybrid handshake is the increased message size. Vanilla WireGuard's handshake initiation message is 148 bytes and the response is 92 bytes (accounting for all headers, encrypted fields, and MACs). Adding ML-KEM-768 material adds 1,184 bytes to the initiation message (the encapsulation key) and 1,088 bytes to the response message (the ciphertext). The total handshake message sizes become approximately 1,332 bytes for the initiation and 1,180 bytes for the response. 
+
+The IPv6 minimum MTU is 1,280 bytes. Both hybrid handshake messages exceed this threshold. The IPv4 minimum MTU is 68 bytes (though in practice the de facto minimum for internet paths is 576 bytes), and typical deployed MTUs are 1,500 bytes for Ethernet.
+
+This creates a fragmentation problem. WireGuard transmits handshake messages as UDP datagrams. Unlike TCP, UDP does not have a built-in fragmentation and reassembly mechanism at the application layer; IP-level fragmentation may occur, but it is unreliable on many real-world network paths (some firewalls drop fragments), and it reduces resilience.
+
+The thesis evaluates three strategies for handling this:
+
+\textbf{Strategy A (IP fragmentation):} Allow IP-level fragmentation to occur. This is the simplest approach and works correctly on network paths that do not drop fragments. Fragmentation behavior is measured across the three test platforms.
+
+\textbf{Strategy B (Application-level segmentation):} Split the handshake messages at the application layer, sending the ML-KEM material in a separate UDP datagram. This requires a protocol extension and adds an additional round trip for ML-KEM key material exchange.
+
+\textbf{Strategy C (Path MTU discovery):} Use PMTUD to discover the path MTU before the handshake and choose a KEM parameter set whose ciphertext fits within the available space. For most internet paths with a 1,500-byte MTU, ML-KEM-768 fits comfortably; for IPv6 paths requiring sub-1,280-byte packets, a reduced parameter set or segmentation is needed.
+
+The evaluation measures which of these strategies performs best on the three test platforms and under what network conditions fragmentation poses a practical problem.
+
+\noindent\rule{\textwidth}{0.4pt}
+
+\subsection{6. Implementation}
+
+\subsubsection{6.1 BoringTun Architecture}
+
+BoringTun is Cloudflare's userspace WireGuard implementation written in Rust, deployed on millions of iOS and Android devices as well as thousands of Cloudflare Linux servers. \cite{httpsgithubcomcloudflarend7}  It is organized as a library crate (boringtun) and a CLI binary (boringtun-cli). The library implements the WireGuard protocol without the network or tunnel stacks, which are left to the application layer.
+
+The core of BoringTun relevant to this thesis is the handshake module, which implements the Noise IK pattern. The module manages handshake state machines for each peer, performs X25519 operations using the x25519-dalek crate (already a dependency), and applies HKDF and BLAKE2s for key derivation. The transport module handles ChaCha20-Poly1305 encryption and decryption and is not modified by this thesis.
+
+BoringTun's memory safety guarantees — inherited from Rust — are particularly relevant for a cryptographic implementation. Rust's ownership and borrowing model prevents the classes of memory safety bugs (buffer overflows, use-after-free, double-free) that have historically been a significant source of cryptographic implementation vulnerabilities. The existing codebase's use of Rust also makes it straightforward to depend on pure-Rust cryptographic primitives from the RustCrypto ecosystem.
+
+\subsubsection{6.2 Technology Stack}
+
+The implementation uses the following dependencies:
+
+\textbf{ML-KEM:} The ml-kem crate from RustCrypto provides a pure-Rust, no\_std implementation of FIPS 203 ML-KEM. It is formally verified, supports all three parameter sets, and is available on crates.io. The pure-Rust, no\_std nature of the crate is important for portability: it allows the implementation to run on resource-constrained targets (including Raspberry Pi and potentially future IoT devices) without requiring C foreign function interface (FFI) dependencies. 
+
+\textbf{X25519:} The x25519-dalek crate is already a dependency of BoringTun and is used for the existing X25519 operations. No changes are required. 
+
+\textbf{Key derivation:} BLAKE2s and HKDF-SHA256 are used for key derivation, consistent with the existing BoringTun implementation. The blake2 and hmac crates from RustCrypto are used.
+
+\textbf{Test hardware:} Apple MacBook Pro M4 (Apple Silicon, ARM64), Raspberry Pi 5 (Cortex-A76, ARM64), Windows PC (Intel x86\_64). 
+
+\subsubsection{6.3 Handshake Module Modifications}
+
+The primary implementation change is to BoringTun's handshake module. The following modifications are made:
+
+\textbf{State structure extension:} The HandshakeState structure is extended with fields for the ML-KEM ephemeral keypair. On the initiator side, an ml\_kem\_768::EncapsulationKey and ml\_kem\_768::DecapsulationKey are stored. On the responder side, the received encapsulation key (parsed from the initiation message) and the encapsulated ciphertext (to be included in the response message) are stored.
+
+\textbf{Initiation message construction:} When the initiator constructs the handshake initiation message, it generates a fresh ML-KEM-768 keypair (ml\_kem\_768::KeyGen()) and appends the 1,184-byte encapsulation key after the standard WireGuard fields. The encapsulation key is added to the handshake hash h via BLAKE2s mixing, binding it to the Noise transcript.
+
+\textbf{Response message construction:} When the responder processes the initiation message, it extracts the ML-KEM encapsulation key, validates its length, and runs ml\_kem\_768::Encaps() to produce a ciphertext ct and shared secret ss\_kem. The 1,088-byte ciphertext is appended after the standard WireGuard response fields and mixed into the handshake hash.
+
+\textbf{Session key derivation:} At the end of the handshake, both parties mix ss\_kem into the chaining key via one additional HKDF step before deriving the final session keys. On the initiator side, ss\_kem is obtained by running ml\_kem\_768::Decaps() on the received ciphertext.
+
+\textbf{MTU handling:} The implementation sets the maximum UDP payload size for handshake messages to 1,500 bytes (standard Ethernet MTU minus IP and UDP headers), allowing IP fragmentation to handle the oversized initiation message on paths that support it. Application-level segmentation is implemented as an optional feature flag.
+
+\subsubsection{6.4 PSK-Slot Baseline Implementation}
+
+The PSK-slot baseline is implemented as a separate Rust binary, pq-psk-init, that operates independently of BoringTun. It uses the same ml-kem crate. The binary implements a simple client-server protocol over a TCP connection (separate from the WireGuard UDP channel): the server generates and distributes its ML-KEM encapsulation key; the client encapsulates and sends the ciphertext; both derive the 32-byte PSK. The PSK is then written to a configuration file that BoringTun reads on startup.
+
+The out-of-band channel itself uses TLS 1.3 to protect the key exchange against network-level eavesdroppers, following the approach recommended by Membrey and Beyel. This means the PSK distribution is itself quantum-resistant, using the hybrid TLS groups (X25519+ML-KEM-768) available in modern TLS libraries.
+
+\subsubsection{6.5 Test Harness}
+
+The evaluation harness is a set of scripts and benchmarks that automate the following measurements:
+
+\begin{itemize}
+\item \textbf{Handshake latency:} Time from initiation message send to session key derivation, averaged over 1,000 trials.
+\end{itemize}
+
+\begin{itemize}
+\item \textbf{Packet sizes:} Measured wire sizes of initiation and response messages, across vanilla, PSK-slot, and hybrid configurations.
+\end{itemize}
+
+\begin{itemize}
+\item \textbf{Fragmentation behavior:} Number of IP fragments observed per handshake, as a function of path MTU, using tc-netem to emulate different MTU constraints.
+\end{itemize}
+
+\begin{itemize}
+\item \textbf{Throughput:} Maximum sustained UDP throughput after handshake completion, to confirm that the hybrid's data transport phase has no overhead relative to vanilla WireGuard.
+\end{itemize}
+
+All measurements are taken on each of the three hardware platforms. Results are compared across all three configurations (vanilla, PSK-slot, hybrid).
+
+\noindent\rule{\textwidth}{0.4pt}
+
+\subsection{7. Security Analysis}
+
+\subsubsection{7.1 Security Goals}
+
+The security goals of the hybrid WireGuard handshake mirror those of the original, as identified by Dowling and Paterson's computational proof and Donenfeld and Milner's symbolic proof for vanilla WireGuard, and as extended by the PQ-WireGuard and Hybrid-WireGuard analyses.  The primary goals are:
+
+\textbf{Session-key secrecy:} A passive or active adversary who does not corrupt either party's long-term or ephemeral secrets cannot distinguish the established session key from a random value.
+
+\textbf{Perfect forward secrecy (PFS):} Compromise of long-term static keys does not allow an adversary to decrypt past sessions. This holds because each session uses a fresh ephemeral keypair (both X25519 and ML-KEM), so past session keys cannot be derived from the static keys alone.
+
+\textbf{Post-quantum forward secrecy:} The X25519 PFS guarantee is extended to the quantum setting: a quantum adversary who breaks X25519 after the session cannot decrypt past traffic, because doing so also requires breaking ML-KEM, which remains computationally hard.
+
+\textbf{Authenticity:} Both the initiator and responder can verify each other's identity via their static public keys (X25519 static keys, as in standard WireGuard). Authentication is classical, not post-quantum, in this design.
+
+\textbf{DoS resistance:} The existing WireGuard cookie mechanism is preserved. Handshake initiation messages with invalid MAC1 are rejected without server state allocation, maintaining the DoS resistance property of vanilla WireGuard.
+
+\textbf{Replay resistance:} The Noise handshake transcript, extended to include the ML-KEM material, prevents replay attacks. The handshake hash h binds all transmitted material, including the ML-KEM ciphertext, to the session.
+
+\subsubsection{7.2 Hybrid Security Argument}
+
+The security of the hybrid construction follows from the concatenate-then-KDF security proof. Let ss\_classical denote the combined X25519 shared secrets derived from the Noise IK exchange, and let ss\_kem denote the ML-KEM-768 shared secret. The session key K is derived as:
+
+K = HKDF(ck || ss\_kem)
+
+where ck is the Noise chaining key after the classical exchange (which already incorporates ss\_classical).
+
+Claim: K is computationally indistinguishable from a random key as long as either ss\_classical is pseudorandom (i.e., X25519 is secure) OR ss\_kem is pseudorandom (i.e., ML-KEM-768 is IND-CCA2 secure).
+
+This follows from the security of HKDF as a PRF: if either input component is a uniformly random value independent of the adversary's view, then the HKDF output is computationally indistinguishable from random (under the random oracle model or assuming the underlying hash function is a PRF). The formal proof is a standard hybrid argument, and its machine-checked version for the concatenation combiner is established in the literature. \cite{httpseprintiacrorg202397nd1} 
+
+In the HNDL threat model, the adversary captures the handshake transcript, which includes both the X25519 public keys and the ML-KEM ciphertext ct. With a quantum computer, the adversary can recover ss\_classical from the X25519 keys. However, to recover ss\_kem, the adversary must also solve the ML-KEM decapsulation problem — specifically, recover the ML-KEM private key dk\_i from the public encapsulation key ek\_i and then decapsulate ct. This is the IND-CCA2 security problem for ML-KEM, which is believed computationally hard for both classical and quantum adversaries under the MLWE assumption. 
+
+\subsubsection{7.3 Forward Secrecy Analysis}
+
+The hybrid handshake provides genuine per-session forward secrecy for the ML-KEM component, in contrast to the PSK-slot baseline.
+
+In the PSK-slot baseline, the ML-KEM exchange is performed once, out-of-band, and the resulting PSK is reused across many WireGuard sessions. If an adversary compromises the PSK after the fact — through the out-of-band channel, key theft, or other means — all sessions using that PSK are retroactively vulnerable, even to a purely classical adversary. The ML-KEM component does not contribute ephemeral, per-session material. 
+
+In the full hybrid, the ML-KEM keypair (ek\_i, dk\_i) is generated fresh for every WireGuard handshake. The ciphertext ct encapsulates ss\_kem specifically for that session's ephemeral public key ek\_i. Once the session key has been derived and dk\_i has been zeroed from memory (consistent with WireGuard's existing practice of zeroing ephemeral keys after use), there is no remaining information that would allow recovery of ss\_kem. An adversary who subsequently breaks into either peer's memory finds no material that compromises past sessions. 
+
+This makes the hybrid's forward secrecy against quantum adversaries equivalent in structure to X25519's forward secrecy against classical adversaries: in both cases, the ephemeral key is gone, and the session key cannot be reconstructed.
+
+\subsubsection{7.4 Authentication and Remaining Limitations}
+
+A notable limitation of the hybrid design in this thesis, shared with most practical hybrid WireGuard proposals, is that authentication remains classical. The static public keys used for identity binding in the Noise IK pattern are X25519 keys. A quantum adversary with a large enough quantum computer could, in principle, compute the static private key from the static public key and impersonate either party in new sessions. However:
+
+\begin{enumerate}
+\item Authentication cannot be retroactively broken: even if a quantum adversary eventually recovers the static X25519 key, it cannot retroactively forge the authentication in past sessions, because authentication affects only the handshake transcript, not the session data.
+\end{enumerate}
+
+\begin{enumerate}
+\item The HNDL threat for past sessions is mitigated by the ML-KEM component in the hybrid: even with the static X25519 key, an adversary cannot reconstruct past session keys without breaking ML-KEM (for sessions using the hybrid handshake).
+\end{enumerate}
+
+\begin{enumerate}
+\item Future work could extend the authentication layer to use ML-DSA (FIPS 204) for post-quantum signatures, but this significantly increases complexity and is outside the scope of this thesis.
+\end{enumerate}
+
+The hybrid design also inherits WireGuard's identity-hiding properties. The initiator's static public key is transmitted encrypted under the established shared secret, so it is not visible to passive adversaries. Extending this to the post-quantum setting, and formally proving identity hiding as in the Hybrid-WireGuard analysis, remains a direction for future work. 
+
+\subsubsection{7.5 Comparison of the Two Approaches}
+
+The PSK-slot baseline and the full hybrid differ in three fundamental ways:
+
+\textbf{Forward secrecy for the quantum component:} The hybrid provides per-handshake ephemeral ML-KEM exchange, giving full post-quantum forward secrecy. The PSK-slot approach does not.
+
+\textbf{Protocol transparency:} The PSK-slot approach works with any WireGuard implementation; it requires no changes to the WireGuard protocol. The hybrid requires both peers to use a modified WireGuard implementation and to agree to use the hybrid mode.
+
+\textbf{Operational complexity:} The PSK-slot approach requires a separate key exchange infrastructure and periodic PSK rotation (or uses a static PSK, reducing security). The hybrid integrates key exchange into the WireGuard handshake automatically, with no additional infrastructure.
+
+For deployments where engineering effort is at a premium and forward secrecy for the quantum component is not required, the PSK-slot approach is appropriate. For deployments handling sensitive long-lived data where the full HNDL threat model applies, the hybrid is strongly preferable.
+
+\noindent\rule{\textwidth}{0.4pt}
+
+\subsection{8. Evaluation}
+
+This section describes the experimental methodology and provides placeholders for benchmark results to be filled in after the experiments are conducted on the test hardware.
+
+\subsubsection{8.1 Experimental Methodology}
+
+All benchmarks are conducted on three hardware platforms:
+
+\begin{itemize}
+\item \textbf{Apple MacBook Pro M4 (Apple Silicon):} ARMv8.5-A, 10-core, 16GB RAM, macOS Sequoia. Used as the primary development and high-performance evaluation platform.
+\end{itemize}
+
+\begin{itemize}
+\item \textbf{Raspberry Pi 5 (Broadcom BCM2712, Cortex-A76):} ARM64, 4-core, 8GB RAM, Raspberry Pi OS (64-bit). Used as the representative resource-constrained platform.
+\end{itemize}
+
+\begin{itemize}
+\item \textbf{Windows PC (Intel x86\_64):} [processor model to be filled in], [RAM] GB, Windows 11. Used for cross-platform validation.
+\end{itemize}
+
+Three configurations are benchmarked:
+
+\begin{itemize}
+\item \textbf{Vanilla:} Unmodified BoringTun, no PSK.
+\end{itemize}
+
+\begin{itemize}
+\item \textbf{PSK-slot:} BoringTun with a WireGuard PSK derived from a one-time ML-KEM-768 exchange via the pq-psk-init binary.
+\end{itemize}
+
+\begin{itemize}
+\item \textbf{Hybrid:} Modified BoringTun with the full X25519 + ML-KEM-768 hybrid handshake.
+\end{itemize}
+
+For handshake latency, a loopback setup is used on each machine: two BoringTun instances on the same host communicate over the loopback interface, eliminating network jitter. This isolates the cryptographic computation cost. An additional test measures latency over a 1 Gbps local network link between two machines.
+
+For MTU fragmentation behavior, tc-netem is used on Linux to emulate reduced-MTU paths (1,400 bytes, 1,280 bytes, 1,000 bytes), and the number of IP fragments per handshake is recorded using tshark.
+
+All timing measurements use std::time::Instant for monotonic clock readings in Rust. Each measurement is repeated 1,000 times; the mean, median, and 99th-percentile values are reported.
+
+\subsubsection{8.2 Handshake Latency Results}
+
+\emph{[BENCHMARKING PLACEHOLDER — to be filled in after experiments]}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{l l l l l}
+\toprule
+Configuration & Platform & Mean Latency (µs) & Median (µs) & P99 (µs) \\
+\midrule
+Vanilla & M4 & TBD & TBD & TBD \\
+PSK-slot & M4 & TBD & TBD & TBD \\
+Hybrid & M4 & TBD & TBD & TBD \\
+Vanilla & Raspberry Pi 5 & TBD & TBD & TBD \\
+PSK-slot & Raspberry Pi 5 & TBD & TBD & TBD \\
+Hybrid & Raspberry Pi 5 & TBD & TBD & TBD \\
+Vanilla & x86\_64 & TBD & TBD & TBD \\
+PSK-slot & x86\_64 & TBD & TBD & TBD \\
+Hybrid & x86\_64 & TBD & TBD & TBD \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\emph{Expected outcome: ML-KEM-768 operations are substantially faster than X25519 in CPU cycles, so the dominant overhead in the hybrid handshake is expected to be the increased message size and any resulting fragmentation, not the KEM computation itself. On the M4, the hybrid handshake overhead is expected to be small relative to vanilla. On Raspberry Pi 5, a more noticeable increase is expected due to memory bandwidth constraints from the larger key material.}
+
+\subsubsection{8.3 Handshake Packet Sizes}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{l l l l}
+\toprule
+Configuration & Initiation Message (bytes) & Response Message (bytes) & Total (bytes) \\
+\midrule
+Vanilla & 148 & 92 & 240 \\
+PSK-slot & 148 & 92 & 240 \\
+Hybrid & \textasciitilde{}1,332 & \textasciitilde{}1,180 & \textasciitilde{}2,512 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The PSK-slot baseline produces no change in WireGuard packet sizes, since the PSK is injected into the key derivation chain rather than transmitted in the handshake messages. The hybrid increases the initiation message by 1,184 bytes (the ML-KEM encapsulation key) and the response by 1,088 bytes (the ciphertext), for a total handshake overhead of approximately 2,272 bytes. 
+
+\subsubsection{8.4 MTU Fragmentation Analysis}
+
+\emph{[BENCHMARKING PLACEHOLDER — to be filled in after experiments]}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{l l l}
+\toprule
+MTU (bytes) & Configuration & Fragments per Handshake \\
+\midrule
+Hybrid & TBD \\
+Hybrid & TBD \\
+Hybrid & TBD \\
+Hybrid & TBD \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\emph{Expected outcome: At 1,500 bytes MTU, the initiation message (1,332 bytes) fits in a single packet without fragmentation. At 1,280 bytes MTU, both messages require fragmentation. The number of fragments and the impact on handshake success rate (some firewalls drop fragments) will be measured. Application-level segmentation will be measured as an alternative to IP fragmentation for the 1,280-byte case.}
+
+\subsubsection{8.5 Transport Throughput}
+
+\emph{[BENCHMARKING PLACEHOLDER — to be filled in after experiments]}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{l l l}
+\toprule
+Configuration & Platform & Throughput (Mbps) \\
+\midrule
+Vanilla & M4 & TBD \\
+Hybrid & M4 & TBD \\
+Vanilla & Raspberry Pi 5 & TBD \\
+Hybrid & Raspberry Pi 5 & TBD \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\emph{Expected outcome: Transport throughput should be identical across all configurations, as the data transport phase (ChaCha20-Poly1305) is unchanged by the hybrid handshake. Any deviation would indicate an implementation bug.}
+
+\subsubsection{8.6 ML-KEM Operation Benchmarks}
+
+\emph{[BENCHMARKING PLACEHOLDER — to be filled in after experiments]}
+
+These microbenchmarks measure the raw cost of ML-KEM-768 operations in isolation, using the ml-kem crate's built-in criterion benchmarks.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{l l l l}
+\toprule
+Operation & M4 (µs) & Raspberry Pi 5 (µs) & x86\_64 (µs) \\
+\midrule
+ML-KEM-768 KeyGen & TBD & TBD & TBD \\
+ML-KEM-768 Encaps & TBD & TBD & TBD \\
+ML-KEM-768 Decaps & TBD & TBD & TBD \\
+X25519 KeyGen & TBD & TBD & TBD \\
+X25519 DH & TBD & TBD & TBD \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\emph{For reference: on Intel Xeon hardware, eBACS benchmarks report 125,303 cycles for X25519 key generation and 135,390 cycles for X25519 shared-key computation, compared to 39,881 cycles for Kyber-768 key generation, 53,841 cycles for encapsulation, and 42,281 cycles for decapsulation. ML-KEM is thus approximately 2-3x faster in raw computation.} 
+
+\noindent\rule{\textwidth}{0.4pt}
+
+\subsection{9. Discussion}
+
+\subsubsection{9.1 Choosing Between the PSK-Slot and Hybrid Approaches}
+
+The PSK-slot and hybrid approaches represent genuinely different tradeoffs, and the right choice depends on the deployment context. For network operators and enterprises considering post-quantum migration today, the PSK-slot approach is the lower-risk, lower-effort option. It requires no changes to WireGuard itself, works with any existing WireGuard client and server, and can be deployed incrementally. Projects like Rosenpass and ExpressVPN's PSK-over-TLS architecture demonstrate that this approach is production-ready at scale. \cite{httpsrosenpasseund3}  \cite{httpsengrxivorgpreprintvnd5} 
+
+The hybrid approach, however, is architecturally superior for deployments where the threat model includes both passive HNDL adversaries and future active adversaries with quantum computers. The key advantage is per-handshake post-quantum forward secrecy: each WireGuard session uses a fresh ML-KEM keypair, so compromise of past or future keypairs does not expose past sessions. The PSK-slot approach's reliance on a semi-static PSK means that a single compromise event can expose months of traffic.
+
+For organizations facing a 2030 or 2035 NIST deadline, the hybrid approach is better aligned with the eventual required state: a WireGuard deployment whose key exchange is fully quantum-resistant without external key management infrastructure. The PSK-slot approach requires that infrastructure to be maintained, secured, and rotated indefinitely.
+
+\subsubsection{9.2 Deployment Considerations}
+
+Several practical considerations affect real-world deployment of the hybrid handshake:
+
+\textbf{MTU management} is the most pressing operational concern. Network paths with an effective MTU below 1,332 bytes will fragment the hybrid initiation message. Fragmentation is not universally supported: firewalls, middleware boxes, and some ISP configurations drop IP fragments. Operators deploying the hybrid on such paths must either use application-level segmentation (adding protocol complexity) or configure WireGuard to negotiate a lower MTU for the VPN interface, reducing the usable payload MTU for encapsulated traffic.
+
+\textbf{Interoperability} requires that both endpoints of a WireGuard tunnel run the hybrid-capable BoringTun. Vanilla WireGuard peers will reject the extended handshake messages (the unknown fields will fail MAC verification). A capability negotiation mechanism — perhaps a reserved field in the handshake or an out-of-band configuration flag — is needed for gradual rollout. This is an engineering problem rather than a fundamental barrier.
+
+\textbf{Key management} for the hybrid requires no new infrastructure beyond what WireGuard already uses. X25519 static keys are managed as before; the ML-KEM ephemeral keys are generated and discarded within each handshake. This is a significant operational advantage over approaches that require ML-KEM static keypairs to be distributed and managed.
+
+\textbf{Performance on constrained hardware} is the primary concern for edge and IoT deployments. The Raspberry Pi 5 benchmarks serve as a proxy for ARM-based edge devices. The expectation is that ML-KEM-768 computations are fast enough that the handshake overhead is dominated by network latency rather than computation, even on the Raspberry Pi 5, though this will be confirmed empirically. 
+
+\subsubsection{9.3 Authentication Agility and Future Work}
+
+The hybrid implementation in this thesis uses X25519 for static-key authentication, which is quantum-vulnerable. A future version should extend the authentication layer to use ML-DSA (FIPS 204) for post-quantum signatures, or alternatively use a ML-KEM-based approach where static KEM keys serve for authentication (as in PQ-WireGuard and Hybrid-WireGuard). However, this significantly increases the complexity of key management — ML-DSA public keys are on the order of 1,312 bytes, compared to 32 bytes for X25519 — and may require changes to the WireGuard key distribution model.
+
+The design of the hybrid handshake in this thesis intentionally leaves authentication classical, consistent with NIST's guidance that the urgency of migration for key agreement (where HNDL attacks apply) is higher than for signatures (where past signatures cannot be retroactively forged). The 2030/2035 timeline for key exchange provides the primary motivation.
+
+\textbf{Rosenpass integration:} A natural extension of the PSK-slot baseline is to integrate with the Rosenpass daemon, which continuously refreshes the WireGuard PSK using post-quantum key exchange. The combination of Rosenpass-managed PSKs and the hybrid handshake would provide layered post-quantum security: the handshake ML-KEM provides ephemeral forward secrecy, and the Rosenpass PSK provides additional quantum-resistant keying material. However, careful analysis is needed to confirm that double-layering does not introduce new vulnerabilities.
+
+\textbf{Formal verification:} The informal security argument in this thesis should be supplemented by a formal proof in a computational model. The eCK-PFS-PSK model used by Hülsing et al. for PQ-WireGuard, and the Sapic+-based approach of Lafourcade et al. for Hybrid-WireGuard, provide templates for how such a proof would be structured.  
+
+\textbf{Parameter set agility:} The implementation currently targets ML-KEM-768. An extension could allow negotiation between ML-KEM-512 (smaller messages, NIST level 1) and ML-KEM-1024 (larger messages, NIST level 5) based on the available path MTU and the security requirements of the deployment.
+
+\textbf{Crypto-agility concerns:} WireGuard's deliberate lack of cipher agility is a security strength — it prevents protocol downgrade attacks of the kind that have plagued TLS. The hybrid implementation should not introduce algorithm negotiation that could be exploited for downgrade attacks. The recommended approach is to configure the ML-KEM parameter set at the operator level, not to negotiate it per-connection.
+
+\subsubsection{9.4 Positioning within the Broader PQ-WireGuard Landscape}
+
+This thesis occupies a specific position in the ecosystem of post-quantum WireGuard proposals:
+
+\begin{itemize}
+\item It targets a production Rust codebase (BoringTun), unlike most academic proposals which use prototype implementations.
+\end{itemize}
+
+\begin{itemize}
+\item It uses NIST-standardized ML-KEM (FIPS 203), unlike PQ-WireGuard (Saber, McEliece) and Rosenpass (Kyber before standardization).
+\end{itemize}
+
+\begin{itemize}
+\item It is hybrid (X25519 + ML-KEM), unlike PQ-WireGuard which is purely post-quantum.
+\end{itemize}
+
+\begin{itemize}
+\item It modifies the Noise handshake directly for the full hybrid, unlike the PSK-slot approaches (Rosenpass, ExpressVPN).
+\end{itemize}
+
+\begin{itemize}
+\item It evaluates across multiple hardware platforms including ARM, providing empirical data relevant to constrained deployments.
+\end{itemize}
+
+The most closely related academic work is the Hybrid-WireGuard proposal of Lafourcade et al., which provides a formally verified hybrid protocol. This thesis complements that work by providing an implementation targeting a real-world Rust codebase and an empirical performance evaluation, while the Hybrid-WireGuard paper provides the formal security proofs that this thesis's informal analysis gestures toward.  
+
+\noindent\rule{\textwidth}{0.4pt}
+
+\subsection{10. Conclusion}
+
+This thesis has presented and analyzed a hybrid post-quantum key exchange extension for WireGuard, integrating ML-KEM-768 alongside X25519 into the Noise IK handshake. The implementation targets BoringTun, Cloudflare's production Rust userspace WireGuard implementation, and provides the first FIPS 203-compliant hybrid WireGuard prototype in a real-world Rust codebase.
+
+The primary contribution is a concrete design for embedding ML-KEM into the Noise IK handshake — with the initiator sending its ML-KEM encapsulation key in the first handshake message and the responder returning the ciphertext in the second — combined with a key derivation step that combines X25519 and ML-KEM shared secrets via HKDF following the NIST SP 800-56C concatenate-then-KDF pattern. The resulting construction is hybrid-secure: security holds as long as at least one of X25519 or ML-KEM remains unbroken. Per-handshake ML-KEM ephemeral keys provide post-quantum forward secrecy, a property the PSK-slot baseline does not offer.
+
+The PSK-slot baseline — implemented as a lightweight companion binary that injects ML-KEM-derived keying material into WireGuard's existing PSK field — serves as a controlled comparison point. It is simpler to deploy and compatible with any WireGuard implementation, but lacks per-session forward secrecy for the quantum component.
+
+The primary engineering challenge is the size increase: ML-KEM-768 adds approximately 2,272 bytes to the handshake messages, requiring careful MTU handling. The thesis evaluates IP fragmentation, application-level segmentation, and path-MTU-aware strategies, measuring their behavior across Apple M4, Raspberry Pi 5, and Intel x86\_64 hardware. Empirical results (to be filled in after experiments) are expected to confirm that ML-KEM computation overhead is modest — comparable to or faster than X25519 in raw cycles — and that network-level overhead from larger messages is the binding constraint.
+
+As NIST's 2030 deprecation deadline for classical key exchange approaches, and as the harvest-now-decrypt-later threat becomes increasingly concrete, hybrid post-quantum key exchange for VPN protocols moves from a research curiosity to an operational necessity. This thesis provides a practical reference implementation and empirical baseline for WireGuard's post-quantum migration path, aligned with NIST standards and suitable for deployment in both high-performance cloud and resource-constrained edge environments.
+
+\noindent\rule{\textwidth}{0.4pt}
+
+\subsection{References}
+
+[1] Donenfeld, J. A. (2017). "WireGuard: Next Generation Kernel Network Tunnel." \emph{NDSS 2017}. 
+
+[2] Perrin, T. (2018). "The Noise Protocol Framework." noiseprotocol.org. 
+
+[3] NIST. (2024). "FIPS 203: Module-Lattice-Based Key-Encapsulation Mechanism Standard (ML-KEM)." 
+
+[4] Hülsing, A., Ning, K., Schwabe, P., Weber, F., Zimmermann, P. (2021). "Post-Quantum WireGuard." \emph{IEEE S\&P 2021}. 
+
+[5] Lafourcade, P., Mahmoud, D., Ruhault, S., Taleb, A. R. (2025). "A Tale of Two Worlds, a Formal Story of WireGuard Hybridization." \emph{IACR ePrint 2025/1179}. 
+
+[6] Angel, Y., Dowling, B., Hülsing, A., Schwabe, P., Weber, F. (2022). "Post-Quantum Noise." \emph{IACR ePrint}. 
+
+[7] Barker, E., Chen, L., Davis, R. (2020). "NIST SP 800-56C Rev. 2: Recommendation for Key-Derivation Methods in Key-Establishment Schemes." 
+
+[8] Cloudflare. (2019). "BoringTun: Userspace WireGuard Implementation in Rust." github.com/cloudflare/boringtun. \cite{httpsgithubcomcloudflarend7} 
+
+[9] RustCrypto. "ml-kem: FIPS 203 ML-KEM Implementation." github.com/RustCrypto/KEMs. 
+
+[10] Varner, K., et al. (2023). "Rosenpass." rosenpass.eu. \cite{httpsrosenpasseund3} 
+
+[11] Membrey, P., Beyel, T. (2025). "Post-Quantum WireGuard: A Practical Implementation Guide." \emph{engrXiv}. \cite{httpsengrxivorgpreprintvnd5} 
+
+[12] Hashimoto, K., Katsumata, S., Niot, G., Wiggers, T. (2026). "Revisiting PQ WireGuard: A Comprehensive Security Analysis With a New Design Using Reinforced KEMs." \emph{IEEE S\&P 2026}. \cite{httpseprintiacrorg202517nd6} 
+
+[13] Stebila, D., et al. (2025). "Hybrid Key Exchange in TLS 1.3." \emph{IETF draft-ietf-tls-hybrid-design-14}. \cite{httpsdatatrackerietforgdnd2} 
+
+[14] Dowling, B., Paterson, K. G. (2021). "A Cryptographic Analysis of the WireGuard Protocol." \emph{Security and Cryptography for Networks}. (Referenced by Hülsing et al. and Lafourcade et al.)
+
+[15] Bos, J., Ducas, L., Kiltz, E., Lepoint, T., Lyubashevsky, V., Schanck, J. M., Schwabe, P., Seiler, G., Stehlé, D. (2018). "CRYSTALS-Kyber: A CCA-Secure Module-Lattice-Based KEM." \emph{IEEE EuroS\&P 2018}. 
+
+[16] NIST IR 8547 (Initial Public Draft). (2024). "Transition to Post-Quantum Cryptography Standards." \cite{httpswwwentrustcomblog20nd8} 
+
+[17] Gidney, C., Ekerå, M. (2021). "How to Factor 2048-bit RSA Integers in 8 Hours Using 20 Million Noisy Qubits." \emph{Quantum}, 5, 433.
+
+[18] Shor, P. W. (1994). "Algorithms for Quantum Computation: Discrete Logarithms and Factoring." \emph{Proceedings 35th Annual Symposium on Foundations of Computer Science}.
+
+[19] NSA. (2022). "Commercial National Security Algorithm Suite 2.0 (CNSA 2.0)." \cite{httpswwwsealsqcomsealsqbnd9} 
+
+[20] Langlois, A., Stehlé, D. (2015). "Worst-Case to Average-Case Reductions for Module Lattices." \emph{Designs, Codes and Cryptography}, 75(3), 565–599. 
+
+
+
+\nocite{*}
+\printbibliography
+\end{document}

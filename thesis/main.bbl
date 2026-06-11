@@ -1,0 +1,157 @@
+\newcommand{\etalchar}[1]{$^{#1}$}
+\begin{thebibliography}{ADH{\etalchar{+}}22}
+
+\bibitem[ADH{\etalchar{+}}22]{pqnoise2022}
+Yawning Angel, Benjamin Dowling, Andreas H{\"u}lsing, Peter Schwabe, and
+  Florian Weber.
+\newblock Post-quantum {Noise}.
+\newblock IACR ePrint 2022/539, 2022.
+\newblock Framework for converting Noise patterns to post-quantum using KEMs.
+
+\bibitem[BDK{\etalchar{+}}18]{bos2018crystals}
+Joppe Bos, L{\'e}o Ducas, Eike Kiltz, Tancr{\`e}de Lepoint, Vadim Lyubashevsky,
+  John~M. Schanck, Peter Schwabe, Gregor Seiler, and Damien Stehl{\'e}.
+\newblock {CRYSTALS-Kyber}: A {CCA}-secure module-lattice-based {KEM}.
+\newblock In {\em Proceedings of the 2018 {IEEE} European Symposium on Security
+  and Privacy ({EuroS\&P})}, pages 353--367. IEEE, 2018.
+
+\bibitem[{Clo}24]{boringtun}
+{Cloudflare, Inc.}
+\newblock {BoringTun}: Userspace {WireGuard} implementation in {Rust}.
+\newblock GitHub repository, 2024.
+\newblock Production-grade userspace WireGuard implementation deployed on
+  millions of devices.
+
+\bibitem[DM18]{donenfeld2018formal}
+Jason~A. Donenfeld and Kevin Milner.
+\newblock Formal verification of the {WireGuard} protocol.
+\newblock Technical report, WireGuard, 2018.
+\newblock Tamarin-based symbolic proof of WireGuard's session-key secrecy and
+  authentication properties.
+
+\bibitem[Don17]{donenfeld2017wireguard}
+Jason~A. Donenfeld.
+\newblock {WireGuard}: Next generation kernel network tunnel.
+\newblock In {\em Proceedings of the 2017 Network and Distributed System
+  Security Symposium ({NDSS})}. Internet Society, 2017.
+
+\bibitem[DP18]{dowling2018wireguard}
+Benjamin Dowling and Kenneth~G. Paterson.
+\newblock A cryptographic analysis of the {WireGuard} protocol.
+\newblock In {\em Applied Cryptography and Network Security -- {ACNS} 2018},
+  volume 10892 of {\em Lecture Notes in Computer Science}, pages 3--21.
+  Springer, 2018.
+\newblock Computational security proof for WireGuard.
+
+\bibitem[GE21]{gidney2021factor}
+Craig Gidney and Martin Eker{\aa}.
+\newblock How to factor 2048-bit {RSA} integers in 8 hours using 20 million
+  noisy qubits.
+\newblock {\em Quantum}, 5:433, 2021.
+
+\bibitem[GHP18]{giacon2018combiners}
+Federico Giacon, Felix Heuer, and Bertram Poettering.
+\newblock {KEM} combiners.
+\newblock In {\em Public-Key Cryptography -- {PKC} 2018}, volume 10769 of {\em
+  Lecture Notes in Computer Science}, pages 190--218. Springer, 2018.
+\newblock Security proof for concatenate-then-KDF hybrid construction. IACR
+  ePrint 2018/024, \url{https://eprint.iacr.org/2018/024}.
+
+\bibitem[Hei24]{criterion}
+Brook Heisler.
+\newblock Criterion.rs: Statistics-driven microbenchmarking in {Rust}.
+\newblock \url{https://github.com/bheisler/criterion.rs}, 2024.
+\newblock Benchmarking library with bootstrapped confidence intervals and
+  outlier detection.
+
+\bibitem[HKNW26]{hashimoto2026rkem}
+Keitaro Hashimoto, Shuichi Katsumata, Emmanuel Niot, and Thom Wiggers.
+\newblock Revised {PQ-WireGuard} with reinforced {KEMs}.
+\newblock In {\em Proceedings of the 2026 {IEEE} Symposium on Security and
+  Privacy ({S\&P})}. IEEE, 2026.
+\newblock Introduces Rebar RKEM construction. Preprint available at
+  \url{https://eprint.iacr.org/2025/1758.pdf}.
+
+\bibitem[HNS{\etalchar{+}}21]{hulsing2021pqwireguard}
+Andreas H{\"u}lsing, Kai-Chun Ning, Peter Schwabe, Florian Weber, and Philip~R.
+  Zimmermann.
+\newblock {PQ-WireGuard}: Post-quantum key exchange for {WireGuard} protocol.
+\newblock In {\em Proceedings of the 2021 {IEEE} Symposium on Security and
+  Privacy ({S\&P})}, pages 304--321. IEEE, 2021.
+
+\bibitem[KE10]{rfc5869}
+Hugo Krawczyk and Pasi Eronen.
+\newblock {RFC} 5869: {HMAC}-based extract-and-expand key derivation function
+  ({HKDF}).
+\newblock Internet Requests for Comments, 2010.
+
+\bibitem[LMR25]{lafourcade2025hybrid}
+Pascal Lafourcade, Dhekra Mahmoud, and Sylvain Ruhault.
+\newblock A tale of two worlds, a formal story of {WireGuard} hybridization.
+\newblock In {\em Proceedings of the 34th {USENIX} Security Symposium ({USENIX}
+  Security 25)}, pages 4937--4956. USENIX Association, 2025.
+\newblock Formal analysis of Hybrid-WireGuard using
+  Sapic+/ProVerif/DeepSec/Tamarin. IACR ePrint 2025/1179.
+
+\bibitem[LS15]{langlois2015worst}
+Adeline Langlois and Damien Stehl{\'e}.
+\newblock Worst-case to average-case reductions for module lattices.
+\newblock {\em Designs, Codes and Cryptography}, 75(3):565--599, 2015.
+
+\bibitem[MB25]{membrey2025expressvpn}
+Peter Membrey and Daan Beyel.
+\newblock Hybrid post-quantum {WireGuard} via {TLS} {PSK} delivery: A
+  production deployment at scale.
+\newblock {\em Engineering Archive (engrXiv)}, 2025.
+\newblock ExpressVPN's production deployment of PSK-based post-quantum
+  WireGuard.
+
+\bibitem[{Nat}20]{nist-sp800-56c}
+{National Institute of Standards and Technology}.
+\newblock {NIST} special publication 800-56c rev. 2: Recommendation for
+  key-derivation methods in key-establishment schemes, 2020.
+
+\bibitem[{Nat}24a]{fips203}
+{National Institute of Standards and Technology}.
+\newblock {FIPS} 203: Module-lattice-based key-encapsulation mechanism
+  standard.
+\newblock Federal information processing standards publication, U.S. Department
+  of Commerce, August 2024.
+
+\bibitem[{Nat}24b]{nistir8547}
+{National Institute of Standards and Technology}.
+\newblock {NIST} {IR} 8547: Transition to post-quantum cryptography standards
+  (initial public draft), 2024.
+\newblock Outlines 2030 deprecation and 2035 disallowance timeline for
+  classical key exchange.
+
+\bibitem[Per18]{noise-protocol}
+Trevor Perrin.
+\newblock The {Noise} protocol framework.
+\newblock \url{https://noiseprotocol.org/}, 2018.
+
+\bibitem[{Ros}24a]{rosenpass-github}
+{Rosenpass Contributors}.
+\newblock Rosenpass: Post-quantum secure key exchange for {WireGuard}.
+\newblock GitHub repository, 2024.
+
+\bibitem[{Ros}24b]{rosenpass}
+{Rosenpass Project}.
+\newblock Rosenpass: Post-quantum secure {VPN} key exchange.
+\newblock \url{https://rosenpass.eu/}, 2024.
+\newblock Open-source post-quantum key exchange daemon for WireGuard.
+
+\bibitem[SFG24]{ietf-tls-hybrid-design}
+Douglas Stebila, Scott Fluhrer, and Shay Gueron.
+\newblock Hybrid key exchange in {TLS} 1.3.
+\newblock Internet-Draft draft-ietf-tls-hybrid-design-14, 2024.
+\newblock Work in Progress.
+
+\bibitem[Sho94]{shor1994algorithms}
+Peter~W. Shor.
+\newblock Algorithms for quantum computation: Discrete logarithms and
+  factoring.
+\newblock In {\em Proceedings 35th Annual Symposium on Foundations of Computer
+  Science ({FOCS})}, pages 124--134. IEEE, 1994.
+
+\end{thebibliography}
