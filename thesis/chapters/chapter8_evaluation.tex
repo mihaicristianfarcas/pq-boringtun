@@ -194,3 +194,37 @@ The entire 6{,}384-byte Tunn delta is accounted for inside the Handshake struct.
 For the dynamic side, the M4 probe shows the per-peer resident-set cost converging to about 6.9~KB at $N = 1000$, within 8\% of the struct delta; the small remainder is allocator chunk overhead. A back-of-envelope projection: a concentrator holding 1000 hybrid peers spends about 6.9~MB more RAM than the same concentrator running vanilla. For IoT-class hardware with 100--512~MB of total RAM, that is under 2\% per peer.
 
 A caveat about the Linux measurements: the Pi 5 and Ryzen probes are honest, but the data is not as useful as the M4's. On both Linux platforms, the binary's static footprint (about 51~MB on the Pi, 63~MB on the Ryzen) is large enough that the 17~MB worth of Tunn structs at $N = 1000$ fits inside the allocator arenas already mapped during startup. \texttt{ru\_maxrss} is a high-water mark and is page-granular, so the watermark does not budge once it has been set by initialization. The cross-mode delta does survive (about 0.5--0.7~MB extra RSS for the pq build, reflecting the ml-kem crate's static data: NTT constants, SHA-3 tables), but the per-N scaling is below the noise floor of the watermark. The portable result to take away is the struct delta itself, which the M4 RSS measurements then ground in a real per-peer number.
+
+\section{DoS Asymmetry under Handshake Flood}
+\label{sec:dos_asymmetry}
+
+WireGuard's handshake messages each carry two MACs: MAC1 (an HMAC over the message, keyed by a hash of the responder's static public key) and MAC2 (a cookie-bound MAC used only when the responder signals it is under load). MAC1 is the first line of defence against handshake-init floods: the responder's rate limiter verifies it before committing to any of the expensive cryptography. In the classical handshake that ``expensive cryptography'' is mostly the three X25519 DH operations the responder has to perform; in the hybrid handshake it is the same three DH operations \emph{plus} one ML-KEM Encaps, so the asymmetry between the reject path and the full-crypto path matters more. To check that the MAC1 short-circuit really fires before the Encaps step, a small flooder example (\texttt{boringtun/examples/handshake\_flood.rs}) emits handshake init packets at line rate against a single responder, in two MAC1 variants:
+
+\begin{itemize}
+    \item \textbf{Valid MAC1:} the flooder uses the real responder public key, so the rate-limit check passes and the responder runs the full handshake parse, including the DH operations and (in pq mode) the ML-KEM Encaps.
+
+    \item \textbf{Invalid MAC1:} the MAC1 byte is corrupted after format, so the rate limiter rejects the packet at the top of the receive path.
+\end{itemize}
+
+Each cell is a 10-second saturating flood from a single-threaded flooder against a single Pi 5 responder, with fresh keypairs on every packet so the responder cannot fast-path on session caches. CPU time is sampled from \texttt{/proc/<pid>/stat} before and after the window and divided by the number of packets the flooder sent.
+
+\begin{table}[H]
+\centering
+\caption{Responder CPU cost per received init packet under a saturating flood, by handshake mode and MAC1 validity, on the Raspberry Pi 5.}
+\label{tab:dos_flood}
+\begin{tabular}{@{}llrrr@{}}
+\toprule
+\textbf{Mode} & \textbf{MAC1} & \textbf{Packets sent} & \textbf{CPU (s)} & \textbf{CPU/pkt ($\mu$s)} \\
+\midrule
+Vanilla & invalid  & 19{,}395 & 0.060 &  3.09 \\
+Vanilla & valid    & 19{,}424 & 0.290 & 14.93 \\
+\midrule
+Hybrid  & invalid  & 16{,}511 & 0.110 &  6.66 \\
+Hybrid  & valid    & 16{,}515 & 0.370 & 22.40 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The within-mode ratio is what confirms the short-circuit. For vanilla, the full-crypto path costs 4.8$\times$ more CPU than the reject path; for hybrid, 3.4$\times$ more. If MAC1 verification ran after Encaps rather than before, both ratios would sit close to 1 and the reject path would inherit the full crypto cost. They don't, so the kind of ``valid MAC1 doubles your attack surface'' argument that gets made about post-quantum handshake additions does not actually apply to this implementation. The hybrid build still pays more per rejected packet in absolute terms (6.66~$\mu$s versus vanilla's 3.09~$\mu$s, a 2.2$\times$ gap), but that comes from parsing the larger 1{,}332-byte initiation and from the rate-limit table lookup hashing more bytes, not from running any Kyber operation.
+
+A practical reading of these numbers: at the worst measured rate (22.40~$\mu$s per packet, hybrid valid), the Pi 5 spends about 37~ms of CPU per second of wall time keeping up with a 16{,}500-pps flood, or roughly 3.7\% of one core. That is well within the headroom a responder needs to keep serving legitimate handshakes alongside the flood. The cookie-reply path, which kicks in when the rate limiter detects overload and forces incoming inits to carry a valid MAC2, was deliberately not exercised here so that the MAC1 short-circuit could be measured in isolation; the experiment characterises the first line of defence, not the second.
