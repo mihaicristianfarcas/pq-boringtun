@@ -1,12 +1,14 @@
 \chapter{Evaluation}
 \label{chap:evaluation}
 
-This chapter evaluates the hybrid handshake along three axes: handshake latency, transport throughput, and primitive-level microbenchmarks. All measurements were collected on two platforms that sit at opposite ends of the ARM64 performance spectrum:
+This chapter evaluates the hybrid handshake along three axes: handshake latency, transport throughput, and primitive-level microbenchmarks. All measurements were collected on three platforms spanning two architectures:
 
 \begin{itemize}
     \item \textbf{Apple MacBook Pro M4 (Apple Silicon):} ARMv8.5-A, 14-core, 24GB RAM,\\macOS Tahoe. The development machine itself, and the high-performance reference.
 
     \item \textbf{Raspberry Pi 5 (Broadcom BCM2712, Cortex-A76):} ARM64, 4-core, 8GB RAM, Raspberry Pi OS Lite (64-bit). A common choice for embedded or edge deployments and a reasonable stand-in for resource-constrained environments.
+
+    \item \textbf{AMD Ryzen 7 5700X (x86\_64):} 8-core / 16-thread, AVX2, running Ubuntu 26.04 inside WSL2 on Windows. Included so that the implementation is not measured exclusively on ARM, and so that any ARM-specific artefact in the \texttt{x25519-dalek} backend (which lacks NEON, as the Pi numbers below make clear) shows up against an x86 control.
 \end{itemize}
 
 \noindent Three configurations are compared:
@@ -41,6 +43,10 @@ Hybrid    & M4              & 247.34 [247.06, 247.63] \\
 Vanilla   & Raspberry Pi 5  & 1312.2 [1312.1, 1312.3] \\
 PSK-slot  & Raspberry Pi 5  & 1311.5 [1311.4, 1311.6] \\
 Hybrid    & Raspberry Pi 5  & 1642.9 [1642.7, 1643.1] \\
+\midrule
+Vanilla   & Ryzen 7 5700X   & 279.64 [278.83, 280.50] \\
+PSK-slot  & Ryzen 7 5700X   & 281.20 [280.38, 282.07] \\
+Hybrid    & Ryzen 7 5700X   & 414.91 [413.93, 415.98] \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -52,6 +58,8 @@ The Pi tells a somewhat different story. The hybrid adds about 331~$\mu$s on top
 It is also worth noting that on the Pi, the classical handshake is overwhelmingly dominated by X25519. A single DH operation takes 192.81~$\mu$s (Table~\ref{tab:mlkem_benchmarks}), and the IK pattern mixes four DH results into the chaining key on each side (\emph{es}, \emph{ss}, \emph{ee}, \emph{se}). BoringTun caches the static-static $\mathit{ss}$ once per peer and reuses it across handshakes (see Chapter~\ref{chap:design}), so only three of the four are recomputed per peer per handshake --- six fresh DH operations across both peers. That alone accounts for $\sim$1157~$\mu$s of the 1312.2~$\mu$s vanilla figure, with another $\sim$116~$\mu$s going to the two ephemeral key generations. Only about 39~$\mu$s is left for everything else (BLAKE2s, ChaCha20-Poly1305, bookkeeping). The ML-KEM operations simply add on top of this X25519-dominated baseline.
 
 A caveat: the loopback setup measures cryptographic cost only. It does not capture the time to actually push the larger PQ messages across a network link. In practice, handshake latency over a real connection is dominated by RTT, not by the sub-millisecond difference between configurations, so this limitation does not change the overall picture.
+
+The Ryzen sits between the two ARM platforms in raw speed and inside their middle ground in proportional terms: vanilla 279.64~$\mu$s, hybrid 414.91~$\mu$s, an overhead of about 135~$\mu$s or 48\%. The ML-KEM operations on the Ryzen sum to $\sim$115~$\mu$s (Table~\ref{tab:mlkem_benchmarks}), which is about 41\% of the vanilla baseline; the gap of $\sim$7 percentage points to the measured 48\% overhead is the same per-message bookkeeping that shows up on the other platforms. Including this measurement matters less because the x86 numbers are interesting on their own and more as a control: the implementation produces the same shape of result on a different architecture, with the hybrid overhead bounded by the cost of the ML-KEM operations rather than by anything ARM-specific.
 
 \section{Handshake Packet Sizes}
 
@@ -103,21 +111,21 @@ To understand where the handshake overhead actually comes from, each cryptograph
 \centering
 \caption{ML-KEM-768 and X25519 operation microbenchmarks (Criterion, point estimate followed by 95\% CI).}
 \label{tab:mlkem_benchmarks}
-\begin{tabular}{@{}lrr@{}}
+\begin{tabular}{@{}lrrr@{}}
 \toprule
-\textbf{Operation} & \textbf{M4 ($\mu$s, [95\% CI])} & \textbf{Raspberry Pi 5 ($\mu$s, [95\% CI])} \\
+\textbf{Operation} & \textbf{M4 ($\mu$s)} & \textbf{Raspberry Pi 5 ($\mu$s)} & \textbf{Ryzen 5700X ($\mu$s)} \\
 \midrule
-ML-KEM-768 KeyGen & 24.13 [24.10, 24.16] & 81.66 [81.65, 81.67]    \\
-ML-KEM-768 Encaps & 20.82 [20.80, 20.85] & 82.77 [82.76, 82.77]    \\
-ML-KEM-768 Decaps & 28.03 [27.99, 28.07] & 115.15 [115.14, 115.16] \\
+ML-KEM-768 KeyGen & 24.13 [24.10, 24.16] & 81.66 [81.65, 81.67]    & 35.83 [35.75, 35.93]    \\
+ML-KEM-768 Encaps & 20.82 [20.80, 20.85] & 82.77 [82.76, 82.77]    & 33.88 [33.76, 34.01]    \\
+ML-KEM-768 Decaps & 28.03 [27.99, 28.07] & 115.15 [115.14, 115.16] & 45.54 [45.43, 45.66]    \\
 \midrule
-X25519 KeyGen     & 8.77 [8.76, 8.78]    & 58.00 [57.99, 58.00]    \\
-X25519 DH         & 20.39 [20.36, 20.41] & 192.81 [192.80, 192.82] \\
+X25519 KeyGen     & 8.77 [8.76, 8.78]    & 58.00 [57.99, 58.00]    & 12.44 [12.41, 12.48]    \\
+X25519 DH         & 20.39 [20.36, 20.41] & 192.81 [192.80, 192.82] & 39.52 [39.41, 39.63]    \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The relative performance of ML-KEM and X25519 depends heavily on the platform. On the M4, the two primitives end up roughly comparable on a per-operation basis: X25519 DH and ML-KEM Encaps are within half a microsecond of each other (20.39~$\mu$s vs 20.82~$\mu$s), ML-KEM Decaps is the slowest single op at 28.03~$\mu$s, and the only place where X25519 clearly wins is keypair generation, at 8.77~$\mu$s against 24.13~$\mu$s for ML-KEM KeyGen, a $\sim$2.75$\times$ gap. On the Pi, the relationship flips. X25519 DH balloons to 192.81~$\mu$s, while ML-KEM KeyGen and Encaps sit around 82~$\mu$s and Decaps at 115~$\mu$s, all of them clearly cheaper than a single DH. The likely reason is that the \texttt{x25519-dalek} implementation BoringTun uses does not take advantage of NEON vectorisation on the Cortex-A76, while ML-KEM's NTT-based arithmetic maps well onto the integer pipeline.
+The relative performance of ML-KEM and X25519 depends heavily on the platform. On the M4, the two primitives end up roughly comparable on a per-operation basis: X25519 DH and ML-KEM Encaps are within half a microsecond of each other (20.39~$\mu$s vs 20.82~$\mu$s), ML-KEM Decaps is the slowest single op at 28.03~$\mu$s, and the only place where X25519 clearly wins is keypair generation, at 8.77~$\mu$s against 24.13~$\mu$s for ML-KEM KeyGen, a $\sim$2.75$\times$ gap. On the Pi, the relationship flips. X25519 DH balloons to 192.81~$\mu$s, while ML-KEM KeyGen and Encaps sit around 82~$\mu$s and Decaps at 115~$\mu$s, all of them clearly cheaper than a single DH. The Ryzen sits between the two: X25519 DH at 39.52~$\mu$s is competitive with ML-KEM Encaps at 33.88~$\mu$s and Decaps at 45.54~$\mu$s, and X25519 KeyGen at 12.44~$\mu$s is again much cheaper than ML-KEM KeyGen at 35.83~$\mu$s. The x86 numbers being closer to the M4 shape than the Pi shape supports the narrative that the Pi anomaly is platform-specific: the \texttt{x25519-dalek} implementation that BoringTun uses has a fast AVX2 backend that the Ryzen benefits from and a fast pure-Rust scalar path that the M4's wide core handles well, but it lacks a NEON port for the Cortex-A76, so the Pi falls back to a slower scalar implementation while ML-KEM's NTT-based arithmetic maps onto the integer pipeline either way.
 
 The eBACS reference figures from the background chapter (X25519 $\sim$135k cycles vs Kyber-768 KeyGen $\sim$40k, Encaps $\sim$54k, Decaps $\sim$42k, measured on Intel Xeon) predicted that ML-KEM would be 2--3$\times$ faster than X25519. The M4 results don't quite line up with that: X25519 DH and ML-KEM Encaps end up roughly tied, probably because the M4's wide out-of-order core handles both workloads close to peak. The Pi numbers, however, broadly agree: X25519 DH at 192.81~$\mu$s is about 2.3$\times$ slower than ML-KEM Encaps at 82.77~$\mu$s on the Cortex-A76.
 
