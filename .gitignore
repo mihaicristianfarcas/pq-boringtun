@@ -5,3 +5,7 @@
 *.md
 *.docx
 *.txt
+
+# Paper artefacts (scripts, runbooks, measurement notes) are versioned.
+!paper/**
+
