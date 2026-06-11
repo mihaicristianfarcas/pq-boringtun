@@ -64,6 +64,7 @@ p50() {
 # ----- Run -----------------------------------------------------------------
 
 require_root
+require_deps
 build_binaries
 
 mkdir -p "$(dirname "$OUT_CSV")"

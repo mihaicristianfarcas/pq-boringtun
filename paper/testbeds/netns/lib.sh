@@ -48,9 +48,13 @@ INIT_PORT="51820"
 RESP_PORT="51821"
 
 # Paths (overridable from caller).
+#
+# With `CARGO_TARGET_DIR=$dir cargo build --release`, the binary lands at
+# $dir/release/boringtun-cli — the per-mode CARGO_TARGET_DIR adds one
+# directory level above cargo's own `release/` subdir.
 : "${REPO_ROOT:=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
-: "${BIN_VANILLA:=$REPO_ROOT/target/release-vanilla/boringtun-cli}"
-: "${BIN_PQ:=$REPO_ROOT/target/release-pq/boringtun-cli}"
+: "${BIN_VANILLA:=$REPO_ROOT/target/release-vanilla/release/boringtun-cli}"
+: "${BIN_PQ:=$REPO_ROOT/target/release-pq/release/boringtun-cli}"
 
 # ----- Helpers --------------------------------------------------------------
 
@@ -59,6 +63,17 @@ die() { log "FATAL: $*"; exit 1; }
 
 require_root() {
     [[ $EUID -eq 0 ]] || die "must run as root (try: sudo -E $0 ...)"
+}
+
+# Bail early with a clear message if a hard dependency is missing.
+require_deps() {
+    local missing=()
+    for cmd in ip wg iptables tc ping cargo; do
+        command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
+    done
+    if (( ${#missing[@]} > 0 )); then
+        die "missing required commands: ${missing[*]} (apt install wireguard-tools iproute2 iptables iputils-ping; install rustup for cargo)"
+    fi
 }
 
 # Build both feature modes into per-feature target directories so we don't
@@ -218,11 +233,17 @@ start_tunnels() {
 stop_tunnels() {
     log "stopping tunnels"
     for pid in "$@"; do
-        kill "$pid" 2>/dev/null || true
+        # `ip netns exec` may fork once before exec, leaving the boringtun
+        # daemon as a child of the backgrounded shell wrapper. Kill any
+        # remaining children before SIGTERM'ing the wrapper itself, so we
+        # don't orphan a daemon that keeps wg0 open for the next cell.
+        pkill -TERM -P "$pid" 2>/dev/null || true
+        kill -TERM "$pid" 2>/dev/null || true
     done
     sleep 0.2
     for pid in "$@"; do
-        kill -9 "$pid" 2>/dev/null || true
+        pkill -KILL -P "$pid" 2>/dev/null || true
+        kill -KILL "$pid" 2>/dev/null || true
     done
 }
 

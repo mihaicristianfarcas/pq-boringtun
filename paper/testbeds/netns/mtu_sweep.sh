@@ -42,6 +42,7 @@ OUT_CSV="$REPO_ROOT/paper/measurements/netns-mtu-sweep.csv"
 # ----- Run -----------------------------------------------------------------
 
 require_root
+require_deps
 build_binaries
 
 mkdir -p "$(dirname "$OUT_CSV")"

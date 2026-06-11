@@ -87,6 +87,7 @@ FLOOD_BIN_PQ="$REPO_ROOT/target/release-pq/release/examples/handshake_flood"
 # ----- Run -----------------------------------------------------------------
 
 require_root
+require_deps
 build_binaries
 build_flood_binaries
 
