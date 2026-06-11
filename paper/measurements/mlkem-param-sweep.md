@@ -11,7 +11,7 @@ CARGO_TARGET_AARCH64_APPLE_DARWIN_RUNNER="env" \
   cargo bench --bench crypto_benches --features pq -- mlkem
 ```
 
-Reproduce on Linux (no sudo runner needed if `.cargo/config.toml` is empty):
+Reproduce on Linux:
 
 ```
 cargo bench --bench crypto_benches --features pq -- mlkem
@@ -19,7 +19,7 @@ cargo bench --bench crypto_benches --features pq -- mlkem
 
 ## Latency
 
-### Apple M4 (macOS 25, aarch64)
+### Apple M4 (macOS 26, aarch64)
 
 | Param set    | Keygen (µs)            | Encaps (µs)            | Decaps (µs)            |
 |--------------|------------------------|------------------------|------------------------|
@@ -27,13 +27,32 @@ cargo bench --bench crypto_benches --features pq -- mlkem
 | ML-KEM-768   | 23.85 [23.82, 23.87]   | 21.26 [21.21, 21.32]   | 27.99 [27.93, 28.06]   |
 | ML-KEM-1024  | 36.84 [36.79, 36.89]   | 31.15 [31.13, 31.17]   | 40.79 [40.75, 40.84]   |
 
-### Raspberry Pi 5 (Linux, aarch64)
+### Raspberry Pi 5 (Debian 13, Cortex-A76 @ 2.4 GHz)
 
-_Pending — run on Pi and paste here._
+| Param set    | Keygen (µs)             | Encaps (µs)             | Decaps (µs)             |
+|--------------|-------------------------|-------------------------|-------------------------|
+| ML-KEM-512   | 48.32 [48.29, 48.38]    | 51.64 [51.64, 51.65]    | 74.70 [74.70, 74.71]    |
+| ML-KEM-768   | 81.61 [81.60, 81.62]    | 84.04 [84.03, 84.04]    | 116.39 [116.28, 116.62] |
+| ML-KEM-1024  | 125.61 [125.60, 125.63] | 127.80 [127.78, 127.81] | 167.42 [167.41, 167.43] |
 
-### x86_64 (WSL2)
+### Ubuntu 26.04 / WSL2, AMD Ryzen 7 5700X (x86_64, AVX2)
 
-_Pending — run on Windows/WSL2 and paste here._
+| Param set    | Keygen (µs)            | Encaps (µs)            | Decaps (µs)            |
+|--------------|------------------------|------------------------|------------------------|
+| ML-KEM-512   | 20.94 [20.89, 21.00]   | 20.27 [20.22, 20.33]   | 28.88 [28.81, 28.96]   |
+| ML-KEM-768   | 35.83 [35.75, 35.93]   | 33.88 [33.76, 34.01]   | 45.54 [45.43, 45.66]   |
+| ML-KEM-1024  | 56.09 [55.97, 56.23]   | 51.41 [51.27, 51.57]   | 66.44 [66.29, 66.59]   |
+
+## Observations
+
+- **Scaling between security levels is roughly linear in security category.** Doubling
+  the security category (512 → 1024) costs about 2.5× per op across all three
+  platforms — a clean, predictable curve.
+- **The x86_64 numbers come in between M4 and Pi**, despite being x86 against
+  ARM. The Ryzen is consumer-grade and was running through the WSL2 hypervisor;
+  the M4's wide out-of-order core comfortably out-paces it on ML-KEM by a factor
+  of 1.4–1.5. The Pi is a further 2–3× slower than the Ryzen, which is the
+  expected gap between a 2.4 GHz Cortex-A76 and a desktop-class core.
 
 ## Wire-format implications
 
@@ -48,7 +67,8 @@ embedded ML-KEM material is swapped, the hybrid datagram sizes are:
 
 - 1280-byte MTU floor (IPv6 minimum): only ML-KEM-512 fits without fragmentation.
 - 1500-byte standard Ethernet MTU: ML-KEM-512 and ML-KEM-768 fit; ML-KEM-1024 must fragment.
-- Existing hybrid implementation in this thesis pins ML-KEM-768.
+- The implementation in this thesis pins ML-KEM-768.
 
 See `chapter9_discussion.tex` § "Parameter set agility" for the future-work
-hook this table supports.
+hook this table supports, and `chapter8_evaluation.tex` § "ML-KEM parameter
+set sweep" for the in-thesis discussion.

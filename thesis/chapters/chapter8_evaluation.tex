@@ -122,3 +122,50 @@ The relative performance of ML-KEM and X25519 depends heavily on the platform. O
 The eBACS reference figures from the background chapter (X25519 $\sim$135k cycles vs Kyber-768 KeyGen $\sim$40k, Encaps $\sim$54k, Decaps $\sim$42k, measured on Intel Xeon) predicted that ML-KEM would be 2--3$\times$ faster than X25519. The M4 results don't quite line up with that: X25519 DH and ML-KEM Encaps end up roughly tied, probably because the M4's wide out-of-order core handles both workloads close to peak. The Pi numbers, however, broadly agree: X25519 DH at 192.81~$\mu$s is about 2.3$\times$ slower than ML-KEM Encaps at 82.77~$\mu$s on the Cortex-A76.
 
 Putting this back in context of the full handshake: the three ML-KEM operations together cost about 73~$\mu$s on the M4, roughly 48\% of a vanilla handshake. The measured hybrid overhead from Table~\ref{tab:handshake_latency} is about 64\%, so the ML-KEM ops account for most of the gap and the remaining $\sim$16 percentage points come from the handling around them: the extra BLAKE2s pass, the bigger buffers, the extra mixing step. On the Pi, the KEM cost ($\sim$280~$\mu$s) is about 21\% of the vanilla handshake while the measured hybrid overhead is around 25\%, leaving roughly four percentage points (about 51~$\mu$s) for the same per-message bookkeeping. That is consistent with the M4 picture, just scaled differently relative to the much larger X25519 baseline on the Pi.
+
+\section{ML-KEM Parameter Set Sweep}
+\label{sec:mlkem_param_sweep}
+
+The hybrid implementation in this thesis pins ML-KEM-768, but FIPS-203 defines three parameter sets: ML-KEM-512 (NIST level 1), ML-KEM-768 (level 3), and ML-KEM-1024 (level 5). Picking between them is a three-way tradeoff between security margin, per-handshake compute cost, and on-wire message size. The compute side of that tradeoff was measured by running the same Criterion harness against all three sets on each platform.
+
+\begin{table}[H]
+\centering
+\caption{ML-KEM operation latency across all three FIPS-203 parameter sets and platforms (Criterion, sample size 1000, point estimate followed by 95\% CI).}
+\label{tab:mlkem_param_sweep}
+\begin{tabular}{@{}llrrr@{}}
+\toprule
+\textbf{Param set} & \textbf{Platform} & \textbf{Keygen ($\mu$s)} & \textbf{Encaps ($\mu$s)} & \textbf{Decaps ($\mu$s)} \\
+\midrule
+ML-KEM-512  & M4              & 14.40 [14.39, 14.41]    & 12.71 [12.69, 12.72]    & 17.50 [17.48, 17.53]    \\
+ML-KEM-512  & Raspberry Pi 5  & 48.32 [48.29, 48.38]    & 51.64 [51.64, 51.65]    & 74.70 [74.70, 74.71]    \\
+ML-KEM-512  & Ryzen 7 5700X   & 20.94 [20.89, 21.00]    & 20.27 [20.22, 20.33]    & 28.88 [28.81, 28.96]    \\
+\midrule
+ML-KEM-768  & M4              & 23.85 [23.82, 23.87]    & 21.26 [21.21, 21.32]    & 27.99 [27.93, 28.06]    \\
+ML-KEM-768  & Raspberry Pi 5  & 81.61 [81.60, 81.62]    & 84.04 [84.03, 84.04]    & 116.39 [116.28, 116.62] \\
+ML-KEM-768  & Ryzen 7 5700X   & 35.83 [35.75, 35.93]    & 33.88 [33.76, 34.01]    & 45.54 [45.43, 45.66]    \\
+\midrule
+ML-KEM-1024 & M4              & 36.84 [36.79, 36.89]    & 31.15 [31.13, 31.17]    & 40.79 [40.75, 40.84]    \\
+ML-KEM-1024 & Raspberry Pi 5  & 125.61 [125.60, 125.63] & 127.80 [127.78, 127.81] & 167.42 [167.41, 167.43] \\
+ML-KEM-1024 & Ryzen 7 5700X   & 56.09 [55.97, 56.23]    & 51.41 [51.27, 51.57]    & 66.44 [66.29, 66.59]    \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The scaling between security levels is roughly linear in NIST category on all three platforms: going from ML-KEM-512 to ML-KEM-1024 (a 2$\times$ jump in category) costs about 2.5$\times$ more per op, give or take. So the parameter-set choice does not buy or cost order-of-magnitude factors of latency, and at handshake scale (microseconds, not milliseconds) any of the three is well within the budget that the X25519 baseline already sets on every platform. ML-KEM-1024 on the Pi is the worst case in the table, at 167~$\mu$s for Decaps, which is still cheaper than a single X25519 DH at 192.81~$\mu$s on the same hardware.
+
+\begin{table}[H]
+\centering
+\caption{Hybrid handshake datagram sizes by ML-KEM parameter set, holding the rest of the wire format fixed. The encapsulation key is carried in the initiation and the ciphertext in the response.}
+\label{tab:hybrid_msg_sizes_by_param}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+\textbf{Param set} & \textbf{EK (B)} & \textbf{CT (B)} & \textbf{Hybrid init (B)} & \textbf{Hybrid response (B)} \\
+\midrule
+ML-KEM-512  &  800 &  768 &  948 &  860 \\
+ML-KEM-768  & 1184 & 1088 & 1332 & 1180 \\
+ML-KEM-1024 & 1568 & 1568 & 1716 & 1660 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Where the choice actually matters is the wire. The 1280-byte IPv6 minimum MTU is the load-bearing threshold: only ML-KEM-512 fits under it without IP-level fragmentation. At a standard 1500-byte Ethernet MTU, both ML-KEM-512 and ML-KEM-768 fit comfortably; ML-KEM-1024's 1716-byte initiation always fragments. Picking ML-KEM-768 (as the thesis implementation does) gives NIST level 3 while remaining unfragmented on any normal Ethernet path; falling back to ML-KEM-512 is the only way to stay below the IPv6 floor; moving up to ML-KEM-1024 buys level-5 security at the cost of guaranteed fragmentation on every link. That is the empirical picture the parameter-set agility discussion in Chapter~\ref{chap:discussion} hangs on.
