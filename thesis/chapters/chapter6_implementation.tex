@@ -62,7 +62,7 @@ The test infrastructure consists of two components: unit tests within the Boring
 The \texttt{noise::tests} module in BoringTun contains tests for both vanilla and PQ handshake paths, conditionally compiled with \texttt{\#[cfg(\allowbreak feature = "pq")]} and \texttt{\#[cfg(not(\allowbreak feature = "pq"))]}:
 
 \begin{itemize}
-\item \textbf{PQ handshake message validation:} Verifies that the PQ initiation message is exactly 1,332 bytes (type 5) and the PQ response is exactly 1,180 bytes (type 6), and that both parse correctly.
+\item \textbf{PQ handshake message validation:} Verifies that the PQ initiation message is exactly 1,332 bytes (type 5) and parses correctly as a PQ initiation packet. Response-size validation (the 1,180-byte type 6 message) is covered by the full-handshake test below.
 
 \item \textbf{Full PQ handshake:} Exercises the complete four-step exchange (init, response, keepalive, done) and verifies that both peers derive working session keys.
 
