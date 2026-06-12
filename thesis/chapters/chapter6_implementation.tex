@@ -45,11 +45,11 @@ The PSK-slot baseline is implemented as a separate Rust CLI binary, \texttt{pq-p
 
 \begin{enumerate}
     \item \texttt{pq-psk-tool keygen}: Generates an ML-KEM-768 keypair. The encapsulation key (1,184 bytes) is written as a base64-encoded file for transfer to the peer. The decapsulation key seed (64 bytes) is written as a separate base64 file and kept secret.
-    \item \texttt{pq-psk-tool encaps <ek\_file>}: Reads the peer's encapsulation key, runs ML-KEM.Encaps, and outputs both the ciphertext (as a base64 file for transfer back to the peer) and the 32-byte shared secret (as a hex-encoded PSK file).
+    \item \texttt{pq-psk-tool encaps <ek\_file>}: Reads the peer's encapsulation key, runs ML-KEM.Encaps, and outputs both the ciphertext (as a base64 file for transfer back to the peer) and the 32-byte shared secret (as a base64-encoded PSK file, in the format WireGuard's \texttt{wg set} expects).
     \item \texttt{pq-psk-tool decaps <dk\_file> <ct\_file>}: Reads the local decapsulation key seed and the peer's ciphertext, runs ML-KEM.Decaps, and recovers the identical 32-byte PSK.
 \end{enumerate}
 
-The key and ciphertext files are exchanged out-of-band using any secure channel available to the operator (e.g., \texttt{scp}, USB transfer, or a secure messaging channel). The tool itself does not implement a network protocol; it is a purely local utility that reads and writes files. Both peers then configure their WireGuard interface with the derived PSK using \texttt{wg set <iface> peer <PUBKEY> preshared-key psk.hex}.
+The key and ciphertext files are exchanged out-of-band using any secure channel available to the operator (e.g., \texttt{scp}, USB transfer, or a secure messaging channel). The tool itself does not implement a network protocol; it is a purely local utility that reads and writes files. Both peers then configure their WireGuard interface with the derived PSK using \texttt{wg set <iface> peer <PUBKEY> preshared-key psk.b64}.
 
 This is deliberately minimal: no networking code, no daemon, just file I/O. The choice of how to securely move files between peers is left to the operator. For production deployments that need automated PSK distribution, pairing with a daemon like Rosenpass~\cite{rosenpass} or a TLS-protected channel as described by Membrey and Beyel~\cite{membrey2025expressvpn} would make more sense.
 
