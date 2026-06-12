@@ -10,3 +10,11 @@
 !paper/**
 paper/**/__pycache__/
 
+# LaTeX intermediates from the arXiv paper compile
+paper/arxiv/*.aux
+paper/arxiv/*.bbl
+paper/arxiv/*.blg
+paper/arxiv/*.log
+paper/arxiv/*.out
+paper/arxiv/*.toc
+
