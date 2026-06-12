@@ -70,31 +70,31 @@
     \draw[timeline] (kem_init.south) -- +(0,-14cm);
     \draw[timeline] (kem_resp.south) -- +(0,-14cm);
     
-    % KEM Row 1: Responder generates keypair (asymmetric!)
-    \coordinate (kem_r1b) at ($(kem_resp.south)-(0,2cm)$);
-    \node[action, anchor=west] at ($(kem_r1b)+(0.3cm,0)$) {$(ek, dk) \gets \textsf{KeyGen}()$\\Public: $ek$, Private: $dk$};
-    
-    % KEM Row 2: Responder sends encapsulation key
-    \coordinate (kem_m1_start) at ($(kem_resp.south)-(0,4.5cm)$);
-    \coordinate (kem_m1_end) at ($(kem_init.south)-(0,4.5cm)$);
+    % KEM Row 1: Initiator generates keypair (asymmetric!)
+    \coordinate (kem_r1a) at ($(kem_init.south)-(0,2cm)$);
+    \node[action, anchor=east] at ($(kem_r1a)+(-0.3cm,0)$) {$(ek, dk) \gets \textsf{KeyGen}()$\\Public: $ek$, Private: $dk$};
+
+    % KEM Row 2: Initiator sends encapsulation key
+    \coordinate (kem_m1_start) at ($(kem_init.south)-(0,4.5cm)$);
+    \coordinate (kem_m1_end) at ($(kem_resp.south)-(0,4.5cm)$);
     \draw[arrow] (kem_m1_start) -- (kem_m1_end);
     \node[msg_label, above=0.2cm] at ($(kem_m1_start)!0.5!(kem_m1_end)$) {Encapsulation Key};
     \node[msg_detail, below=0.2cm] at ($(kem_m1_start)!0.5!(kem_m1_end)$) {$ek$ (1184 bytes for ML-KEM-768)};
-    
-    % KEM Row 3: Initiator encapsulates
-    \coordinate (kem_r3a) at ($(kem_init.south)-(0,6cm)$);
-    \node[action, anchor=east] at ($(kem_r3a)+(-0.3cm,0)$) {$(ss, ct) \gets \textsf{Encaps}(ek)$\\Obtains shared secret $ss$};
-    
-    % KEM Row 4: Initiator sends ciphertext
-    \coordinate (kem_m2_start) at ($(kem_init.south)-(0,9.5cm)$);
-    \coordinate (kem_m2_end) at ($(kem_resp.south)-(0,9.5cm)$);
+
+    % KEM Row 3: Responder encapsulates
+    \coordinate (kem_r3b) at ($(kem_resp.south)-(0,6cm)$);
+    \node[action, anchor=west] at ($(kem_r3b)+(0.3cm,0)$) {$(ss, ct) \gets \textsf{Encaps}(ek)$\\Obtains shared secret $ss$};
+
+    % KEM Row 4: Responder sends ciphertext
+    \coordinate (kem_m2_start) at ($(kem_resp.south)-(0,9.5cm)$);
+    \coordinate (kem_m2_end) at ($(kem_init.south)-(0,9.5cm)$);
     \draw[arrow] (kem_m2_start) -- (kem_m2_end);
     \node[msg_label, above=0.2cm] at ($(kem_m2_start)!0.5!(kem_m2_end)$) {Ciphertext};
     \node[msg_detail, below=0.2cm] at ($(kem_m2_start)!0.5!(kem_m2_end)$) {$ct$ (1088 bytes for ML-KEM-768)};
-    
-    % KEM Row 5: Responder decapsulates
-    \coordinate (kem_r5b) at ($(kem_resp.south)-(0,12cm)$);
-    \node[action, anchor=west] at ($(kem_r5b)+(0.3cm,0)$) {$ss \gets \textsf{Decaps}(dk, ct)$\\Obtains shared secret $ss$};
+
+    % KEM Row 5: Initiator decapsulates
+    \coordinate (kem_r5a) at ($(kem_init.south)-(0,12cm)$);
+    \node[action, anchor=east] at ($(kem_r5a)+(-0.3cm,0)$) {$ss \gets \textsf{Decaps}(dk, ct)$\\Obtains shared secret $ss$};
     
     % KEM Result box
     \node[result_box, below=12cm of $(kem_init.south)!0.5!(kem_resp.south)$] (kem_result) {
