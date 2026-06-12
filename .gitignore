@@ -9,6 +9,13 @@
 # Paper artefacts (scripts, runbooks, measurement notes) are versioned.
 !paper/**
 paper/**/__pycache__/
+# ...but never macOS cruft (the !paper/** above would otherwise re-include it)
+paper/.DS_Store
+paper/**/.DS_Store
+
+# Generated arXiv submission bundle (regenerate from paper/arxiv/main.tex)
+paper/arxiv/submission/
+paper/arxiv/arxiv-submission.tar.gz
 
 # LaTeX intermediates from the arXiv paper compile
 paper/arxiv/*.aux
