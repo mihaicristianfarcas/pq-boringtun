@@ -23,18 +23,18 @@ The PSK-slot approach is the minimal intervention: a standalone binary performs 
 
 Before any WireGuard session is established, the two peers run the PSK exchange out-of-band. One peer generates an ML-KEM-768 keypair and sends the encapsulation key to the other. That peer runs ML-KEM.Encaps, obtaining a ciphertext ct and a 32-byte shared secret K, then sends ct back. The first peer runs ML-KEM.Decaps to recover the same K. Both peers configure their WireGuard interface with preshared\_key = K.
 
-\begin{figure}[!htbp]
-    \centering
-    \includegraphics[width=\textwidth]{figures/fig_psk_handshake.pdf}
-    \caption{PSK-Slot Baseline: Out-of-band ML-KEM exchange and PSK injection.}
-    \label{fig:psk_handshake}
-\end{figure}
-
 The PSK is then mixed into the WireGuard handshake's HMAC-BLAKE2s key derivation chain, providing a quantum-resistant layer of security for all traffic protected by sessions using that PSK.
 
 This approach has real limitations. The ML-KEM keypair used in the out-of-band exchange is static or semi-static, it does not change per handshake, so the ML-KEM component provides no forward secrecy. If the PSK is compromised after the session, all traffic from sessions that used it is exposed. The PSK also has to be distributed before any sessions can be established, which adds operational overhead.
 
 That said, the PSK baseline has a clear advantage: it requires zero changes to WireGuard itself. It works with any existing WireGuard implementation and can be deployed immediately, providing protection against HNDL adversaries who cannot compromise the out-of-band channel.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/fig_psk_handshake.pdf}
+    \caption{PSK-Slot Baseline: Out-of-band ML-KEM exchange and PSK injection.}
+    \label{fig:psk_handshake}
+\end{figure}
 
 \section{The Hybrid Handshake}
 
@@ -89,15 +89,15 @@ The modified handshake proceeds as follows:
     After key derivation, the data transport phase proceeds identically to unmodified WireGuard. No changes are required to the ChaCha20-Poly1305 transport encryption or the session management layer.
     \end{description}
 
-    \begin{figure}[!htbp]
+    Two properties follow from this design.
+ Per-session forward secrecy comes from both components: the X25519 ephemeral key is fresh for each handshake, and so is the ML-KEM keypair, making $\mathit{ss}_\mathit{kem}$ unique to each session. The construction is also \emph{hybrid-secure}: if ML-KEM is completely broken (an adversary knows $\mathit{ss}_\mathit{kem}$), the session key still depends on the X25519 exchange and cannot be recovered without breaking X25519 too. The converse also holds: a quantum adversary who breaks X25519 still cannot derive the session key without also breaking ML-KEM.
+
+    \begin{figure}[H]
     \centering
     \includegraphics[width=\textwidth]{figures/fig_hybrid_handshake.pdf}
     \caption{The Full Hybrid Handshake: Integrated ML-KEM-768.}
     \label{fig:hybrid_handshake}
     \end{figure}
-
-    Two properties follow from this design.
- Per-session forward secrecy comes from both components: the X25519 ephemeral key is fresh for each handshake, and so is the ML-KEM keypair, making $\mathit{ss}_\mathit{kem}$ unique to each session. The construction is also \emph{hybrid-secure}: if ML-KEM is completely broken (an adversary knows $\mathit{ss}_\mathit{kem}$), the session key still depends on the X25519 exchange and cannot be recovered without breaking X25519 too. The converse also holds: a quantum adversary who breaks X25519 still cannot derive the session key without also breaking ML-KEM.
 
 \section{Key Derivation Details}
 
