@@ -1,5 +1,5 @@
 mode,mac1,target_pps,duration_sec,packets_sent,cpu_sec,cpu_per_pkt_us
-vanilla,invalid,0,10,19395,0.060,3.09
-vanilla,valid,0,10,19424,0.290,14.93
-pq,invalid,0,10,16511,0.110,6.66
-pq,valid,0,10,16515,0.370,22.40
+vanilla,invalid,0,10,19440,0.060,3.09
+vanilla,valid,0,10,19427,0.290,14.93
+pq,invalid,0,10,16530,0.100,6.05
+pq,valid,0,10,16491,0.390,23.65
