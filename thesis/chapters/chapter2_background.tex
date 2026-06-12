@@ -55,7 +55,7 @@ The main difficulty in migrating Noise to post-quantum cryptography is that its 
 \begin{figure}[!htbp]
     \centering
     \includegraphics[width=\textwidth]{figures/fig_kem_vs_dh.pdf}
-    \caption{Comparison of Diffie-Hellman key exchange and Key Encapsulation Mechanisms, illustrating the asymmetry challenge for Noise protocol migration. The KEM side shows the canonical direction, where the recipient of the shared secret publishes the encapsulation key; the hybrid construction in Chapter~\ref{chap:design} runs this the other way around, with the initiator generating an ephemeral $(\mathit{ek}, \mathit{dk})$ and sending $\mathit{ek}$ in the first message to mirror the X25519 ephemeral flow.}
+    \caption[Diffie-Hellman vs.\ Key Encapsulation Mechanisms.]{Comparison of Diffie-Hellman key exchange and Key Encapsulation Mechanisms, illustrating the asymmetry challenge for Noise protocol migration. Unlike DH, where both parties perform the same symmetric operation, a KEM splits the work into distinct roles: one party generates an ephemeral keypair $(\mathit{ek}, \mathit{dk})$ and publishes $\mathit{ek}$, the other encapsulates against $\mathit{ek}$ to produce a ciphertext and a shared secret, and the keypair holder decapsulates the ciphertext to recover the same secret. The KEM side is drawn in the direction used by the hybrid handshake of Chapter~\ref{chap:design}: the initiator generates the ephemeral $(\mathit{ek}, \mathit{dk})$ and sends $\mathit{ek}$ in the first message, mirroring the X25519 ephemeral flow, while the responder encapsulates in its reply.}
     \label{fig:kem_vs_dh}
 \end{figure}
 
