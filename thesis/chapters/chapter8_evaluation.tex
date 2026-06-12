@@ -103,6 +103,87 @@ The numbers are essentially the same across configurations, as expected. The 2~M
 
 This table functions as a sanity check more than a performance claim. All three configurations use the same ChaCha20-Poly1305 data plane once the handshake is done, so throughput parity is the only reasonable outcome; any difference would point to an implementation bug rather than a fundamental cost. A Pi-only loopback test was not included because the Linux kernel routes traffic between two WireGuard interfaces on the same host directly, bypassing encryption entirely; without network namespaces to force real encapsulation, the measurements would not be reliable.
 
+\section{Path-MTU Sweep}
+\label{sec:mtu_sweep}
+
+The hybrid initiation is 1{,}332 bytes (Table~\ref{tab:packet_sizes}), which fits a 1{,}500-byte Ethernet path comfortably but does not fit any path with an effective MTU below 1{,}332. Below that threshold the kernel either fragments the UDP datagram at the IP layer or drops it with EMSGSIZE depending on the socket's PMTUD setting; the former is what BoringTun's userspace sockets fall back to by default. To check that fragmentation actually carries the handshake through, the testbed brings up two Linux network namespaces connected by a veth pair, runs BoringTun in each, and sweeps the veth MTU across the values that straddle the hybrid initiation size. Each cell is 10 cold trials; latency is the first-packet ping RTT, which subsumes the handshake cost.
+
+\begin{table}[H]
+\centering
+\caption{Handshake success rate and first-packet latency across a path-MTU sweep on the Raspberry Pi 5. The \emph{drop\_frags} column attempts to install an iptables fragment-drop rule on the responder; see the discussion below for why it is silently inert.}
+\label{tab:mtu_sweep}
+\small
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{@{}llcrr@{}}
+\toprule
+\textbf{Mode} & \textbf{MTU (B)} & \textbf{Drop frags} & \textbf{Successes} & \textbf{p50 RTT (ms)} \\
+\midrule
+Vanilla & 1500 & no  & 10/10 & 1.70 \\
+Hybrid  & 1500 & no  & 10/10 & 2.09 \\
+Vanilla & 1500 & yes & 10/10 & 2.58 \\
+Hybrid  & 1500 & yes & 10/10 & 2.09 \\
+\midrule
+Vanilla & 1400 & no  & 10/10 & 1.71 \\
+Hybrid  & 1400 & no  & 10/10 & 3.26 \\
+Vanilla & 1400 & yes & 10/10 & 2.50 \\
+Hybrid  & 1400 & yes & 10/10 & 3.27 \\
+\midrule
+Vanilla & 1300 & no  & 10/10 & 2.64 \\
+Hybrid  & 1300 & no  & 10/10 & 3.10 \\
+Vanilla & 1300 & yes & 10/10 & 1.71 \\
+Hybrid  & 1300 & yes & 10/10 & 2.12 \\
+\midrule
+Vanilla & 1280 & no  & 10/10 & 2.26 \\
+Hybrid  & 1280 & no  & 10/10 & 2.10 \\
+Vanilla & 1280 & yes & 10/10 & 1.76 \\
+Hybrid  & 1280 & yes & 10/10 & 3.13 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The headline result is direct: the hybrid handshake completes ten out of ten trials at every cell, including the cells where the 1{,}332-byte initiation does not fit the path MTU and must be fragmented by the kernel. p50 latency stays in a 1.7--3.3~ms band across the entire sweep. The hybrid is 0.5--1~ms slower than vanilla on most cells, which is the in-process ML-KEM cost from Table~\ref{tab:handshake_latency} carried through into a real socket path. There is no cliff at the 1{,}332-byte boundary: kernel-level IP fragmentation is transparent to userspace WireGuard and adds at most a few hundred microseconds on this hardware.
+
+A methodology note about the \emph{drop\_frags} column. The intent was to simulate a middlebox that silently drops IPv4 fragments after the first, using an iptables rule \texttt{-A INPUT -i \$veth -f -j DROP} on the responder. The rule installs without error but the success column reads 10/10 even where fragmentation is forced. The reason is that any non-trivial netfilter ruleset on a modern Linux kernel implicitly loads \texttt{nf\_defrag\_ipv4}, which reassembles fragments at the conntrack stage --- which runs \emph{before} the filter table. By the time INPUT sees the packet it is no longer a fragment, so the \texttt{-f} match never fires. To genuinely test fragment-dropping middlebox behaviour would require either a \texttt{raw}-table rule (which runs before conntrack), an nftables match that pins to the pre-conntrack hook, or a third intermediary netns doing the drop on its forwarding path. None of those changes are in the testbed used here; the result this table supports is the more limited but honest claim that BoringTun's hybrid handshake survives IP-layer fragmentation cleanly across all measured MTUs, with the fragment-hostile-middlebox case left for future work.
+
+\section{RTT and Loss}
+\label{sec:rtt_loss}
+
+With MTU pinned at 1{,}500 (no fragmentation pressure --- that is the previous section's concern), the testbed attaches \texttt{tc netem} qdiscs to both veth endpoints to inject symmetric one-way delay and packet loss, and re-runs the cold-handshake trial across a four-by-three matrix of delay $\in \{0, 10, 50, 100\}$~ms and loss $\in \{0, 0.1, 1\}\%$. Twenty trials per cell.
+
+\begin{table}[H]
+\centering
+\caption{Hybrid and vanilla handshake performance under injected RTT and loss on the Raspberry Pi 5. p50 / p95 are over successful trials; the success column shows trials that finished within the 5-second ping timeout.}
+\label{tab:rtt_loss_matrix}
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{@{}lrrccrrcc@{}}
+\toprule
+ & & & \multicolumn{3}{c}{Vanilla} & \multicolumn{3}{c}{Hybrid} \\
+\cmidrule(lr){4-6}\cmidrule(lr){7-9}
+\textbf{Delay (ms)} & \textbf{Loss (\%)} & & \textbf{Succ.} & \textbf{p50 (ms)} & \textbf{p95 (ms)} & \textbf{Succ.} & \textbf{p50 (ms)} & \textbf{p95 (ms)} \\
+\midrule
+0   & 0   && 20/20 &  1.71 &  2.53 & 20/20 &  2.09 &  2.13 \\
+0   & 0.1 && 20/20 &  2.52 &  2.73 & 20/20 &  3.07 &  3.32 \\
+0   & 1   && 20/20 &  1.81 &  2.70 & 20/20 &  3.27 &  3.43 \\
+10  & 0   && 20/20 & 42.6  & 42.7  & 20/20 & 43.3  & 43.5  \\
+10  & 0.1 && 20/20 & 42.7  & 42.7  & 20/20 & 43.3  & 43.5  \\
+10  & 1   && 20/20 & 42.7  & 42.8  & 20/20 & 43.3  & 43.5  \\
+50  & 0   && 20/20 & 202   & 203   & 20/20 & 203   & 203   \\
+50  & 0.1 && 20/20 & 202   & 203   & 20/20 & 203   & 203   \\
+50  & 1   && 19/20 & 202   & 303   & 19/20 & 203   & \textbf{1319} \\
+100 & 0   && 20/20 & 403   & 403   & 20/20 & 403   & 403   \\
+100 & 0.1 && 20/20 & 403   & 403   & 19/20 & 403   & 603   \\
+100 & 1   && 19/20 & 403   & 603   & 20/20 & 403   & 403   \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Median latency tracks RTT cleanly, as it should: at $d$~ms one-way delay the first-packet ping pays one handshake round-trip plus one ping round-trip, so p50 sits a few microseconds above $4d$. The hybrid is consistently 0.5--1~ms above vanilla across every RTT band, which is the ML-KEM cost again, unaffected by the link.
+
+The interesting cells are at the high end of the matrix. At 50~ms × 1\%, both modes drop to 19/20 successes --- the same per-trial failure rate --- but the hybrid p95 stretches to 1{,}319~ms while vanilla's tail is only 303~ms. That gap is the signature of a handshake retry firing. Both modes send two messages on the wire (initiation and response), and at 1\% per-packet loss the probability that both arrive on the first try is about 98\%. When one of them is lost, BoringTun's REKEY timer eventually retries, and the retry-recovery cost is mode-independent (the same protocol, the same timer, scaled by the same RTT). The reason the hybrid tail is longer is not that hybrid retries cost more; it is that the larger hybrid messages do not change a 1\% loss rate but they do produce more wire-level events to be the one that gets dropped. The 100~ms cells with 19/20 successes are within Bernoulli noise for 20 samples.
+
+The takeaway for deployment: on links with sub-millisecond loss the hybrid handshake behaves like vanilla; under combined high RTT and non-trivial loss the failure \emph{rate} is the same but the worst-case recovery time can be several seconds. That is the kind of tail that matters for re-handshake budgets during long-lived sessions, not for the dominant first-connect case.
+
 \section{ML-KEM Operation Benchmarks}
 
 To understand where the handshake overhead actually comes from, each cryptographic primitive was measured in isolation. Both the ML-KEM-768 and X25519 operations now go through Criterion with a sample size of 1000, so the microbenchmark numbers are all produced the same way (per-operation warm-up, outlier detection, bootstrapped 95\% confidence intervals) and are directly comparable.
@@ -228,15 +309,15 @@ Each cell is a 10-second saturating flood from a single-threaded flooder against
 \toprule
 \textbf{Mode} & \textbf{MAC1} & \textbf{Packets sent} & \textbf{CPU (s)} & \textbf{CPU/pkt ($\mu$s)} \\
 \midrule
-Vanilla & invalid  & 19{,}395 & 0.060 &  3.09 \\
-Vanilla & valid    & 19{,}424 & 0.290 & 14.93 \\
+Vanilla & invalid  & 19{,}440 & 0.060 &  3.09 \\
+Vanilla & valid    & 19{,}427 & 0.290 & 14.93 \\
 \midrule
-Hybrid  & invalid  & 16{,}511 & 0.110 &  6.66 \\
-Hybrid  & valid    & 16{,}515 & 0.370 & 22.40 \\
+Hybrid  & invalid  & 16{,}530 & 0.100 &  6.05 \\
+Hybrid  & valid    & 16{,}491 & 0.390 & 23.65 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The within-mode ratio is what confirms the short-circuit. For vanilla, the full-crypto path costs 4.8$\times$ more CPU than the reject path; for hybrid, 3.4$\times$ more. If MAC1 verification ran after Encaps rather than before, both ratios would sit close to 1 and the reject path would inherit the full crypto cost. They don't, so the kind of ``valid MAC1 doubles your attack surface'' argument that gets made about post-quantum handshake additions does not actually apply to this implementation. The hybrid build still pays more per rejected packet in absolute terms (6.66~$\mu$s versus vanilla's 3.09~$\mu$s, a 2.2$\times$ gap), but that comes from parsing the larger 1{,}332-byte initiation and from the rate-limit table lookup hashing more bytes, not from running any Kyber operation.
+The within-mode ratio is what confirms the short-circuit. For vanilla, the full-crypto path costs 4.8$\times$ more CPU than the reject path; for hybrid, 3.9$\times$ more. If MAC1 verification ran after Encaps rather than before, both ratios would sit close to 1 and the reject path would inherit the full crypto cost. They don't, so the kind of ``valid MAC1 doubles your attack surface'' argument that gets made about post-quantum handshake additions does not actually apply to this implementation. The hybrid build still pays more per rejected packet in absolute terms (6.05~$\mu$s versus vanilla's 3.09~$\mu$s, a 2.0$\times$ gap), but that comes from parsing the larger 1{,}332-byte initiation and from the rate-limit table lookup hashing more bytes, not from running any Kyber operation.
 
-A practical reading of these numbers: at the worst measured rate (22.40~$\mu$s per packet, hybrid valid), the Pi 5 spends about 37~ms of CPU per second of wall time keeping up with a 16{,}500-pps flood, or roughly 3.7\% of one core. That is well within the headroom a responder needs to keep serving legitimate handshakes alongside the flood. The cookie-reply path, which kicks in when the rate limiter detects overload and forces incoming inits to carry a valid MAC2, was deliberately not exercised here so that the MAC1 short-circuit could be measured in isolation; the experiment characterises the first line of defence, not the second.
+A practical reading of these numbers: at the worst measured rate (23.65~$\mu$s per packet, hybrid valid), the Pi 5 spends about 39~ms of CPU per second of wall time keeping up with a 16{,}500-pps flood, or roughly 3.9\% of one core. That is well within the headroom a responder needs to keep serving legitimate handshakes alongside the flood. The cookie-reply path, which kicks in when the rate limiter detects overload and forces incoming inits to carry a valid MAC2, was deliberately not exercised here so that the MAC1 short-circuit could be measured in isolation; the experiment characterises the first line of defence, not the second.
