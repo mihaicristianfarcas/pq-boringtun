@@ -9,6 +9,5 @@ license = "BSD-3-Clause"
 ml-kem = "0.3.0-rc.0"
 clap = { version = "4", features = ["derive"] }
 base64 = "0.22"
-hex = "0.4"
 getrandom = { version = "0.4", features = ["sys_rng"] }
 rand_core = "0.10"

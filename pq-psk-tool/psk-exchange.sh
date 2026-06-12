@@ -22,8 +22,8 @@
 #   On Peer B: ./psk-exchange.sh encaps
 #   Transfer mlkem_ct.b64 back to Peer A
 #   On Peer A: ./psk-exchange.sh decaps
-#   Both peers now have psk.hex — configure via:
-#     wg set <iface> peer <PUBKEY> preshared-key psk.hex
+#   Both peers now have psk.b64 — configure via:
+#     wg set <iface> peer <PUBKEY> preshared-key psk.b64
 
 set -euo pipefail
 
@@ -54,7 +54,7 @@ case "${1:-demo}" in
 
     encaps)
         echo "=== Step 2: Encapsulating shared secret ==="
-        "$TOOL" encaps "$WORKDIR/mlkem_ek.b64" -c "$WORKDIR/mlkem_ct.b64" -p "$WORKDIR/psk.hex"
+        "$TOOL" encaps "$WORKDIR/mlkem_ek.b64" -c "$WORKDIR/mlkem_ct.b64" -p "$WORKDIR/psk.b64"
         echo ""
         echo "Next: Transfer $WORKDIR/mlkem_ct.b64 back to the keygen peer, then run:"
         echo "  $0 decaps"
@@ -62,10 +62,10 @@ case "${1:-demo}" in
 
     decaps)
         echo "=== Step 3: Decapsulating shared secret ==="
-        "$TOOL" decaps "$WORKDIR/mlkem_dk.b64" "$WORKDIR/mlkem_ct.b64" -p "$WORKDIR/psk.hex"
+        "$TOOL" decaps "$WORKDIR/mlkem_dk.b64" "$WORKDIR/mlkem_ct.b64" -p "$WORKDIR/psk.b64"
         echo ""
         echo "Done! Configure the PSK in WireGuard:"
-        echo "  wg set <iface> peer <PUBKEY> preshared-key $WORKDIR/psk.hex"
+        echo "  wg set <iface> peer <PUBKEY> preshared-key $WORKDIR/psk.b64"
         ;;
 
     demo)
@@ -78,17 +78,17 @@ case "${1:-demo}" in
         echo ""
 
         echo "--- Peer B: Encapsulating (using Peer A's public key) ---"
-        "$TOOL" encaps "$WORKDIR/mlkem_ek.b64" -c "$WORKDIR/mlkem_ct.b64" -p "$WORKDIR/psk_b.hex"
+        "$TOOL" encaps "$WORKDIR/mlkem_ek.b64" -c "$WORKDIR/mlkem_ct.b64" -p "$WORKDIR/psk_b.b64"
         echo ""
 
         echo "--- Peer A: Decapsulating (using ciphertext from Peer B) ---"
-        "$TOOL" decaps "$WORKDIR/mlkem_dk.b64" "$WORKDIR/mlkem_ct.b64" -p "$WORKDIR/psk_a.hex"
+        "$TOOL" decaps "$WORKDIR/mlkem_dk.b64" "$WORKDIR/mlkem_ct.b64" -p "$WORKDIR/psk_a.b64"
         echo ""
 
         echo "--- Verification ---"
-        if diff -q "$WORKDIR/psk_a.hex" "$WORKDIR/psk_b.hex" > /dev/null 2>&1; then
+        if diff -q "$WORKDIR/psk_a.b64" "$WORKDIR/psk_b.b64" > /dev/null 2>&1; then
             echo "SUCCESS: Both peers derived the same 32-byte PSK"
-            echo "PSK (hex): $(cat "$WORKDIR/psk_a.hex")"
+            echo "PSK (base64): $(cat "$WORKDIR/psk_a.b64")"
         else
             echo "FAILURE: PSKs do not match!"
             exit 1
@@ -121,7 +121,7 @@ case "${1:-demo}" in
             echo "--- Cleaning up ---"
             kill "$PID_A" "$PID_B" 2>/dev/null || true
             wait "$PID_A" "$PID_B" 2>/dev/null || true
-            rm -f "$WORKDIR"/wg_*.key "$WORKDIR"/psk*.hex
+            rm -f "$WORKDIR"/wg_*.key "$WORKDIR"/psk*.b64
             rm -f "$WORKDIR"/mlkem_*.b64
             echo "Done."
         }
@@ -140,17 +140,15 @@ case "${1:-demo}" in
         # Step 2: ML-KEM-768 PSK exchange
         echo "--- ML-KEM-768 PSK Exchange ---"
         "$TOOL" keygen -e "$WORKDIR/mlkem_ek.b64" -d "$WORKDIR/mlkem_dk.b64"
-        "$TOOL" encaps "$WORKDIR/mlkem_ek.b64" -c "$WORKDIR/mlkem_ct.b64" -p "$WORKDIR/psk.hex"
-        "$TOOL" decaps "$WORKDIR/mlkem_dk.b64" "$WORKDIR/mlkem_ct.b64" -p "$WORKDIR/psk_verify.hex"
+        "$TOOL" encaps "$WORKDIR/mlkem_ek.b64" -c "$WORKDIR/mlkem_ct.b64" -p "$WORKDIR/psk.b64"
+        "$TOOL" decaps "$WORKDIR/mlkem_dk.b64" "$WORKDIR/mlkem_ct.b64" -p "$WORKDIR/psk_verify.b64"
 
-        if ! diff -q "$WORKDIR/psk.hex" "$WORKDIR/psk_verify.hex" > /dev/null 2>&1; then
+        if ! diff -q "$WORKDIR/psk.b64" "$WORKDIR/psk_verify.b64" > /dev/null 2>&1; then
             echo "FATAL: PSK mismatch!"
             exit 1
         fi
-        PSK_HEX=$(cat "$WORKDIR/psk.hex")
-        # Convert hex PSK to base64 for wg set
-        PSK_B64=$(echo "$PSK_HEX" | xxd -r -p | base64)
-        echo "PQ-derived PSK: $PSK_HEX"
+        # psk.b64 is already a base64 WireGuard key — usable directly by `wg set`.
+        echo "PQ-derived PSK (base64): $(cat "$WORKDIR/psk.b64")"
         echo ""
 
         # Step 3: Start boringtun peers
@@ -159,7 +157,6 @@ case "${1:-demo}" in
         # Write private keys to temp files (wg set reads from files)
         echo "$WG_A_PRIV" > "$WORKDIR/wg_a.key"
         echo "$WG_B_PRIV" > "$WORKDIR/wg_b.key"
-        echo "$PSK_B64" > "$WORKDIR/psk_b64.key"
 
         # Start peer A (utun interface)
         WG_LOG_LEVEL=debug "$BORINGTUN" utun8 \
@@ -185,7 +182,7 @@ case "${1:-demo}" in
             private-key "$WORKDIR/wg_a.key" \
             listen-port 51820 \
             peer "$WG_B_PUB" \
-                preshared-key "$WORKDIR/psk_b64.key" \
+                preshared-key "$WORKDIR/psk.b64" \
                 endpoint 127.0.0.1:51821 \
                 allowed-ips 10.0.0.2/32
 
@@ -194,7 +191,7 @@ case "${1:-demo}" in
             private-key "$WORKDIR/wg_b.key" \
             listen-port 51821 \
             peer "$WG_A_PUB" \
-                preshared-key "$WORKDIR/psk_b64.key" \
+                preshared-key "$WORKDIR/psk.b64" \
                 endpoint 127.0.0.1:51820 \
                 allowed-ips 10.0.0.1/32
 

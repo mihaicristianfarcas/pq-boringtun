@@ -45,8 +45,9 @@ enum Command {
         #[arg(short = 'c', long, default_value = "mlkem_ct.b64")]
         ct_out: PathBuf,
 
-        /// Output path for the PSK (hex-encoded 32-byte shared secret)
-        #[arg(short = 'p', long, default_value = "psk.hex")]
+        /// Output path for the PSK (base64-encoded 32-byte shared secret,
+        /// directly usable as a WireGuard preshared key)
+        #[arg(short = 'p', long, default_value = "psk.b64")]
         psk_out: PathBuf,
     },
 
@@ -59,8 +60,9 @@ enum Command {
         /// Path to the ciphertext from the peer (base64 file)
         ct_file: PathBuf,
 
-        /// Output path for the PSK (hex-encoded 32-byte shared secret)
-        #[arg(short = 'p', long, default_value = "psk.hex")]
+        /// Output path for the PSK (base64-encoded 32-byte shared secret,
+        /// directly usable as a WireGuard preshared key)
+        #[arg(short = 'p', long, default_value = "psk.b64")]
         psk_out: PathBuf,
     },
 }
@@ -81,9 +83,12 @@ fn write_base64_file(path: &PathBuf, data: &[u8]) {
     eprintln!("Wrote {} ({} bytes raw) to {}", encoded.len(), data.len(), path.display());
 }
 
-fn write_psk_hex(path: &PathBuf, secret: &[u8]) {
-    let hex_str = hex::encode(secret);
-    fs::write(path, &hex_str)
+fn write_psk_base64(path: &PathBuf, secret: &[u8]) {
+    // WireGuard's `wg set ... preshared-key <file>` expects a base64-encoded
+    // 32-byte key. Writing the PSK in base64 (not hex) makes the file usable
+    // directly, with no conversion step on the operator's side.
+    let b64 = BASE64.encode(secret);
+    fs::write(path, &b64)
         .unwrap_or_else(|e| panic!("Failed to write {}: {}", path.display(), e));
     eprintln!("Wrote PSK ({} bytes) to {}", secret.len(), path.display());
     eprintln!("Use with: wg set <iface> peer <PUBKEY> preshared-key {}", path.display());
@@ -132,7 +137,7 @@ fn main() {
             let (ct, shared_secret) = ek.encapsulate_with_rng(&mut UnwrapErr(getrandom::SysRng));
 
             write_base64_file(&ct_out, ct.as_slice());
-            write_psk_hex(&psk_out, shared_secret.as_slice());
+            write_psk_base64(&psk_out, shared_secret.as_slice());
 
             eprintln!(
                 "\nEncapsulation complete. Send {} back to the keygen peer.",
@@ -170,7 +175,7 @@ fn main() {
             let shared_secret = dk.try_decapsulate(ct)
                 .expect("Decapsulation failed");
 
-            write_psk_hex(&psk_out, shared_secret.as_slice());
+            write_psk_base64(&psk_out, shared_secret.as_slice());
 
             eprintln!("\nDecapsulation complete. PSK matches the encapsulator's PSK.");
         }

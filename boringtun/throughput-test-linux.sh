@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # throughput-test-linux.sh — loopback throughput test for Linux (Raspberry Pi)
 # Must be run as root (sudo).
+#
+# CAVEAT: On Linux, two userspace WireGuard interfaces on the same host can be
+# short-circuited by the kernel's local routing, so loopback traffic between
+# them may never be encrypted/encapsulated. Numbers from this script are
+# therefore unreliable and are NOT cited in the thesis — Chapter 8 uses the
+# cross-device Mac<->Pi test (cross_device_test_*.sh) instead. This script is
+# kept only as a convenience/sanity harness.
 set -euo pipefail
 
 VANILLA_BIN="${1:-/tmp/boringtun-vanilla}"
