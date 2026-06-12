@@ -47,7 +47,7 @@ jni = { version = "0.19.0", optional = true }
 mock_instant = { version = "0.3", optional = true }
 socket2 = { version = "0.4.7", features = ["all"], optional = true }
 thiserror = { version = "1", optional = true }
-ml-kem = { version = "0.3.0-rc.0", optional = true }
+ml-kem = { version = "0.3.0-rc.0", features = ["zeroize"], optional = true }
 rand_core_pq = { package = "rand_core", version = "0.10", optional = true }
 getrandom_pq = { package = "getrandom", version = "0.4", features = ["sys_rng"], optional = true }
 
@@ -61,6 +61,8 @@ nix = { version = "0.25", default-features = false, features = [
 etherparse = "0.13"
 tracing-subscriber = "0.3"
 criterion = { version = "0.3.5", features = ["html_reports"] }
+# Used only by a PQ test that statically asserts DecapsulationKey768: ZeroizeOnDrop.
+zeroize = "1.8"
 
 [lib]
 crate-type = ["staticlib", "cdylib", "rlib"]

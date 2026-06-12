@@ -1130,4 +1130,43 @@ mod tests {
         };
         assert_eq!(sent_packet_buf, recv_packet_buf);
     }
+
+    /// A response whose ML-KEM ciphertext has been tampered with must not yield a
+    /// completed handshake. The ciphertext is both covered by the message MAC and
+    /// bound into key derivation (ML-KEM uses implicit rejection, so a corrupted
+    /// ct decapsulates to a *different* shared secret rather than erroring, which
+    /// desynchronises the chaining key and fails the response's AEAD tag). Either
+    /// way the initiator must reject the response.
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_tampered_ciphertext_rejected() {
+        let (mut my_tun, mut their_tun) = create_two_tuns();
+        let init = create_handshake_init(&mut my_tun);
+        let mut resp = create_handshake_response(&mut their_tun, &init);
+
+        // Response layout: type(4) sender(4) receiver(4) ephemeral(32)
+        // enc_nothing(16) ml_kem_ct(1088) macs(32). Flip bits inside the ct.
+        let ct_start = 4 + 4 + 4 + 32 + 16;
+        resp[ct_start + 50] ^= 0xff;
+
+        let mut dst = [0u8; 1024];
+        let result = my_tun.decapsulate(None, &resp, &mut dst);
+        assert!(
+            matches!(result, TunnResult::Err(_)),
+            "tampered ML-KEM ciphertext must be rejected, got {:?}",
+            result
+        );
+    }
+
+    /// Compile-time guarantee backing the forward-secrecy argument: the ephemeral
+    /// ML-KEM decapsulation key wipes its secret material on drop, so no
+    /// recoverable dk remains once the handshake completes. This bound only holds
+    /// because the `pq` feature enables `ml-kem/zeroize`; if that feature were
+    /// dropped, this test would fail to compile.
+    #[test]
+    #[cfg(feature = "pq")]
+    fn mlkem_decapsulation_key_zeroized_on_drop() {
+        fn assert_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+        assert_zeroize_on_drop::<ml_kem::DecapsulationKey768>();
+    }
 }
