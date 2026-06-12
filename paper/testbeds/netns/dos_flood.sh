@@ -103,7 +103,7 @@ for mode in "${WG_MODES[@]}"; do
         setup_netns 1500 ""
 
         # Bring up only the responder; we do not want a real initiator
-        # competing for the wg0 device.
+        # competing for the same wg interface.
         local_resp_priv=$(wg genkey)
         local_resp_pub=$(echo "$local_resp_priv" | wg pubkey)
 
@@ -111,17 +111,17 @@ for mode in "${WG_MODES[@]}"; do
         flood_bin=$([[ $mode == "pq" ]] && echo "$FLOOD_BIN_PQ" || echo "$FLOOD_BIN_VANILLA")
 
         ip netns exec "$NS_RESP" \
-            "$bin" wg0 --foreground --disable-drop-privileges \
+            "$bin" "$WG_IFACE_RESP" --foreground --disable-drop-privileges \
             >/tmp/pqwg-"$mode"-resp.log 2>&1 &
         RESP_PID=$!
 
-        # Wait for wg0 to appear.
+        # Wait for the wg interface to appear.
         for i in {1..50}; do
-            ip netns exec "$NS_RESP" ip link show wg0 >/dev/null 2>&1 && break
+            ip netns exec "$NS_RESP" ip link show "$WG_IFACE_RESP" >/dev/null 2>&1 && break
             sleep 0.1
         done
 
-        echo "$local_resp_priv" | ip netns exec "$NS_RESP" wg set wg0 \
+        echo "$local_resp_priv" | ip netns exec "$NS_RESP" wg set "$WG_IFACE_RESP" \
             private-key /dev/stdin listen-port "$RESP_PORT"
 
         # Sample CPU ticks before the flood. Wait briefly so any setup CPU

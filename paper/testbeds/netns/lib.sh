@@ -4,16 +4,24 @@
 #
 # Topology (after `setup_netns`):
 #
-#   +----------+     veth pair (path-MTU $PATH_MTU)     +----------+
-#   |  ns-init |=========================================|  ns-resp |
-#   +----------+ 10.99.0.1/24                10.99.0.2/24 +----------+
-#       |                                                       |
-#   wg0=10.0.0.1/24      <-- boringtun userspace WG -->      wg0=10.0.0.2/24
+#   +-----------+     veth pair (path-MTU $PATH_MTU)     +-----------+
+#   |  ns-init  |=========================================|  ns-resp  |
+#   +-----------+ 10.99.0.1/24                10.99.0.2/24 +-----------+
+#       |                                                          |
+#  wg-init=10.0.0.1/24   <-- boringtun userspace WG -->  wg-resp=10.0.0.2/24
 #
 # Inside each ns, boringtun runs as a userspace WireGuard daemon. The two
 # tunnels handshake over the veth link. Path MTU, IP-fragment drops, and tc
 # netem delay/loss can be toggled on the veth devices to model real-world
 # transport pathologies without leaving the host.
+#
+# Why distinct interface names (wg-init / wg-resp) rather than the more
+# natural wg0 in both namespaces: the `wg` userspace tool talks to its
+# daemon over a UAPI Unix socket at /var/run/wireguard/<ifname>.sock, and
+# that path lives in the host filesystem, which is NOT netns-confined. Two
+# daemons both named wg0 collide on the same socket -- the second one to
+# start wins, and every `wg set` from either ns afterwards lands on it.
+# Giving each tunnel its own ifname makes the UAPI sockets distinct.
 #
 # Source this file from per-experiment scripts:
 #
@@ -46,6 +54,11 @@ WG_CIDR="24"
 
 INIT_PORT="51820"
 RESP_PORT="51821"
+
+# Distinct wg interface names per side so the UAPI Unix sockets at
+# /var/run/wireguard/<ifname>.sock do not collide (see file-header note).
+WG_IFACE_INIT="wg-init"
+WG_IFACE_RESP="wg-resp"
 
 # Paths (overridable from caller).
 #
@@ -207,41 +220,45 @@ start_tunnels() {
     read -r RESP_PRIV RESP_PUB <<<"$(genkey_pair)"
 
     # Boringtun in foreground mode logs to stderr; redirect per-daemon.
+    # Distinct interface names per side -- see file-header note about UAPI
+    # socket collisions when both sides use the same name.
     ip netns exec "$NS_INIT" \
-        "$bin" wg0 --foreground --disable-drop-privileges \
+        "$bin" "$WG_IFACE_INIT" --foreground --disable-drop-privileges \
         >/tmp/pqwg-"$mode"-init.log 2>&1 &
     INIT_PID=$!
 
     ip netns exec "$NS_RESP" \
-        "$bin" wg0 --foreground --disable-drop-privileges \
+        "$bin" "$WG_IFACE_RESP" --foreground --disable-drop-privileges \
         >/tmp/pqwg-"$mode"-resp.log 2>&1 &
     RESP_PID=$!
 
-    # Wait for the wg0 device to appear in each ns.
-    for ns in "$NS_INIT" "$NS_RESP"; do
-        for i in {1..50}; do
-            ip netns exec "$ns" ip link show wg0 >/dev/null 2>&1 && break
-            sleep 0.1
-        done
+    # Wait for the wg interface to appear in each ns.
+    for i in {1..50}; do
+        ip netns exec "$NS_INIT" ip link show "$WG_IFACE_INIT" >/dev/null 2>&1 && break
+        sleep 0.1
+    done
+    for i in {1..50}; do
+        ip netns exec "$NS_RESP" ip link show "$WG_IFACE_RESP" >/dev/null 2>&1 && break
+        sleep 0.1
     done
 
     # Configure both ends. Responder listens on $RESP_PORT.
-    echo "$INIT_PRIV" | ip netns exec "$NS_INIT" wg set wg0 \
+    echo "$INIT_PRIV" | ip netns exec "$NS_INIT" wg set "$WG_IFACE_INIT" \
         private-key /dev/stdin listen-port "$INIT_PORT" \
         peer "$RESP_PUB" allowed-ips "$WG_RESP_IP/32" \
         endpoint "$UNDERLAY_RESP_IP:$RESP_PORT" \
         persistent-keepalive 0
 
-    echo "$RESP_PRIV" | ip netns exec "$NS_RESP" wg set wg0 \
+    echo "$RESP_PRIV" | ip netns exec "$NS_RESP" wg set "$WG_IFACE_RESP" \
         private-key /dev/stdin listen-port "$RESP_PORT" \
         peer "$INIT_PUB" allowed-ips "$WG_INIT_IP/32" \
         endpoint "$UNDERLAY_INIT_IP:$INIT_PORT" \
         persistent-keepalive 0
 
-    ip -n "$NS_INIT" addr add "$WG_INIT_IP/$WG_CIDR" dev wg0
-    ip -n "$NS_RESP" addr add "$WG_RESP_IP/$WG_CIDR" dev wg0
-    ip -n "$NS_INIT" link set wg0 up
-    ip -n "$NS_RESP" link set wg0 up
+    ip -n "$NS_INIT" addr add "$WG_INIT_IP/$WG_CIDR" dev "$WG_IFACE_INIT"
+    ip -n "$NS_RESP" addr add "$WG_RESP_IP/$WG_CIDR" dev "$WG_IFACE_RESP"
+    ip -n "$NS_INIT" link set "$WG_IFACE_INIT" up
+    ip -n "$NS_RESP" link set "$WG_IFACE_RESP" up
 
     echo "$INIT_PID $RESP_PID"
 }
