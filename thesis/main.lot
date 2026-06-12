@@ -7,9 +7,9 @@
 \addvspace {10\p@ }
 \addvspace {10\p@ }
 \addvspace {10\p@ }
-\contentsline {table}{\numberline {8.1}{\ignorespaces Handshake latency across configurations and platforms (loopback, Criterion sample size 500, 95\% bootstrapped CI).\relax }}{33}{table.caption.9}%
-\contentsline {table}{\numberline {8.2}{\ignorespaces Handshake packet sizes for each configuration.\relax }}{34}{table.caption.10}%
+\contentsline {table}{\numberline {8.1}{\ignorespaces Handshake latency across configurations and platforms (loopback, Criterion sample size 500). Each cell shows the bootstrapped per-iteration point estimate followed by the 95\% CI.\relax }}{33}{table.caption.9}%
+\contentsline {table}{\numberline {8.2}{\ignorespaces Handshake packet sizes for each configuration.\relax }}{35}{table.caption.10}%
 \contentsline {table}{\numberline {8.3}{\ignorespaces Transport throughput after handshake completion (\texttt {iperf3}, $t = 15$\,s).\relax }}{35}{table.caption.11}%
-\contentsline {table}{\numberline {8.4}{\ignorespaces ML-KEM-768 and X25519 operation microbenchmarks (Criterion, mean with 95\% CI in brackets).\relax }}{36}{table.caption.12}%
+\contentsline {table}{\numberline {8.4}{\ignorespaces ML-KEM-768 and X25519 operation microbenchmarks (Criterion, point estimate followed by 95\% CI).\relax }}{36}{table.caption.12}%
 \addvspace {10\p@ }
 \addvspace {10\p@ }

@@ -27,7 +27,7 @@ The implementation relies on the following dependencies:
 
 The primary implementation change is to BoringTun's handshake module. All post-quantum code is conditionally compiled behind a Cargo feature flag (\texttt{pq}), ensuring that vanilla builds are completely unaffected: no additional dependencies are compiled, no code paths change, and binary size remains identical. The \texttt{pq} feature gates the ml-kem, rand\_core\_pq, and getrandom\_pq dependencies, as well as all PQ-related message types, state fields, and handshake methods. The following modifications are made when the feature is enabled:
 
-\textbf{State structure extension:} The HandshakeState structure is extended with fields for the ML-KEM ephemeral keypair. On the initiator side, an ml\_kem\_768::EncapsulationKey and ml\_kem\_768::DecapsulationKey are stored. On the responder side, the received encapsulation key (parsed from the initiation message) and the encapsulated ciphertext (to be included in the response message) are stored.
+\textbf{State structure extension:} The HandshakeState structure is extended to carry the minimal ML-KEM material each side needs across handshake steps. On the initiator side, only the ml\_kem\_768::\allowbreak DecapsulationKey is stored, so the response can later be decapsulated; the encapsulation key is serialized into the initiation message and then dropped. On the responder side, only the received encapsulation key (parsed from the initiation message) is stored, so encapsulation can be performed when the response is built; the resulting ciphertext is written directly into the response message rather than retained in state.
 
 \textbf{Initiation message construction:} When the initiator constructs the handshake initiation message, it generates a fresh ML-KEM-768 keypair (ml\_kem\_768::KeyGen()) and appends the 1,184-byte encapsulation key after the standard WireGuard fields. The encapsulation key is added to the handshake hash h via BLAKE2s mixing, binding it to the Noise transcript.
 
@@ -45,11 +45,11 @@ The PSK-slot baseline is implemented as a separate Rust CLI binary, \texttt{pq-p
 
 \begin{enumerate}
     \item \texttt{pq-psk-tool keygen}: Generates an ML-KEM-768 keypair. The encapsulation key (1,184 bytes) is written as a base64-encoded file for transfer to the peer. The decapsulation key seed (64 bytes) is written as a separate base64 file and kept secret.
-    \item \texttt{pq-psk-tool encaps <ek\_file>}: Reads the peer's encapsulation key, runs ML-KEM.Encaps, and outputs both the ciphertext (as a base64 file for transfer back to the peer) and the 32-byte shared secret (as a hex-encoded PSK file).
+    \item \texttt{pq-psk-tool encaps <ek\_file>}: Reads the peer's encapsulation key, runs ML-KEM.Encaps, and outputs both the ciphertext (as a base64 file for transfer back to the peer) and the 32-byte shared secret (as a base64-encoded PSK file, in the format WireGuard's \texttt{wg set} expects).
     \item \texttt{pq-psk-tool decaps <dk\_file> <ct\_file>}: Reads the local decapsulation key seed and the peer's ciphertext, runs ML-KEM.Decaps, and recovers the identical 32-byte PSK.
 \end{enumerate}
 
-The key and ciphertext files are exchanged out-of-band using any secure channel available to the operator (e.g., \texttt{scp}, USB transfer, or a secure messaging channel). The tool itself does not implement a network protocol; it is a purely local utility that reads and writes files. Both peers then configure their WireGuard interface with the derived PSK using \texttt{wg set <iface> peer <PUBKEY> preshared-key psk.hex}.
+The key and ciphertext files are exchanged out-of-band using any secure channel available to the operator (e.g., \texttt{scp}, USB transfer, or a secure messaging channel). The tool itself does not implement a network protocol; it is a purely local utility that reads and writes files. Both peers then configure their WireGuard interface with the derived PSK using \texttt{wg set <iface> peer <PUBKEY> preshared-key psk.b64}.
 
 This is deliberately minimal: no networking code, no daemon, just file I/O. The choice of how to securely move files between peers is left to the operator. For production deployments that need automated PSK distribution, pairing with a daemon like Rosenpass~\cite{rosenpass} or a TLS-protected channel as described by Membrey and Beyel~\cite{membrey2025expressvpn} would make more sense.
 
@@ -59,10 +59,10 @@ The test infrastructure consists of two components: unit tests within the Boring
 
 \subsection{Unit Tests}
 
-The \texttt{noise::tests} module in BoringTun contains tests for both vanilla and PQ handshake paths, conditionally compiled with \texttt{\#[cfg(feature = "pq")]} and \texttt{\#[cfg(not(feature = "pq"))]}:
+The \texttt{noise::tests} module in BoringTun contains tests for both vanilla and PQ handshake paths, conditionally compiled with \texttt{\#[cfg(\allowbreak feature = "pq")]} and \texttt{\#[cfg(not(\allowbreak feature = "pq"))]}:
 
 \begin{itemize}
-\item \textbf{PQ handshake message validation:} Verifies that the PQ initiation message is exactly 1,332 bytes (type 5) and the PQ response is exactly 1,180 bytes (type 6), and that both parse correctly.
+\item \textbf{PQ handshake message validation:} Verifies that the PQ initiation message is exactly 1,332 bytes (type 5) and parses correctly as a PQ initiation packet. Response-size validation (the 1,180-byte type 6 message) is covered by the full-handshake test below.
 
 \item \textbf{Full PQ handshake:} Exercises the complete four-step exchange (init, response, keepalive, done) and verifies that both peers derive working session keys.
 

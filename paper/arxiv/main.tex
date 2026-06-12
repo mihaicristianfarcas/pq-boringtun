@@ -69,7 +69,7 @@ Integrating ML-KEM into a Production Rust Userspace Implementation}}
   Mihai-Cristian Farca\textcommabelow{s}\\
   Babe\textcommabelow{s}-Bolyai University\\
   Cluj-Napoca, Romania\\
-  \texttt{wrap\_alphas.8s@icloud.com}
+  \texttt{mihaicristianfarcas@gmail.com}
 }
 
 \date{\today}
@@ -243,7 +243,7 @@ ML-KEM operations use the \texttt{ml-kem} crate (version 0.3.0-rc.0) from RustCr
 
 All post-quantum code is conditionally compiled behind a Cargo feature flag (\texttt{pq}). Vanilla builds are completely unaffected: no additional dependencies are compiled, no code paths change, and binary size remains identical. The \texttt{pq} feature gates the \texttt{ml-kem}, \texttt{rand\_core\_pq}, and \texttt{getrandom\_pq} dependencies, as well as all PQ-related message types, state fields, and handshake methods.
 
-\textbf{State extension.} The \texttt{HandshakeState} structure is extended with fields for the ML-KEM ephemeral keypair. On the initiator side, an \texttt{EncapsulationKey768} and \texttt{DecapsulationKey768} are stored. On the responder side, the received encapsulation key and the encapsulated ciphertext are stored.
+\textbf{State extension.} The \texttt{HandshakeState} structure is extended to carry the minimal ML-KEM material each side needs across handshake steps. On the initiator side, only the \texttt{DecapsulationKey768} is stored, so the response can later be decapsulated; the encapsulation key is serialized into the initiation message and then dropped. On the responder side, only the received encapsulation key is stored, so encapsulation can be performed when the response is built; the resulting ciphertext is written directly into the response message rather than retained in state.
 
 \textbf{Message construction.} When the initiator builds the initiation message, it generates a fresh ML-KEM-768 keypair and appends the 1184-byte encapsulation key after the standard WireGuard fields, mixing it into the handshake hash $h$. When the responder processes the initiation, it extracts the encapsulation key, validates its length, runs \texttt{Encaps} to produce $\mathit{ct}$ and $\mathit{ss}_\mathit{kem}$, and appends the 1088-byte $\mathit{ct}$ to the response, again mixing it into $h$.
 
@@ -253,11 +253,11 @@ All post-quantum code is conditionally compiled behind a Cargo feature flag (\te
 
 \subsection{PSK-slot baseline implementation}
 
-The PSK-slot baseline is implemented as a separate Rust CLI binary, \texttt{pq-psk-tool}, that operates independently of BoringTun. It uses the same \texttt{ml-kem} crate and provides three subcommands implementing a manual three-step ML-KEM-768 key exchange: \texttt{keygen} (generates an ML-KEM-768 keypair, encapsulation key as base64 for transfer, decapsulation seed kept secret), \texttt{encaps <ek\_file>} (runs ML-KEM.Encaps, outputs ciphertext as base64 and shared secret as hex PSK), and \texttt{decaps <dk\_file> <ct\_file>} (runs ML-KEM.Decaps, recovers the identical 32-byte PSK). The encapsulation key and ciphertext files are exchanged out-of-band; the tool itself does not implement a network protocol. Both peers then configure their WireGuard interface with the derived PSK using \texttt{wg set <iface> peer <PUBKEY> preshared-key psk.hex}.
+The PSK-slot baseline is implemented as a separate Rust CLI binary, \texttt{pq-psk-tool}, that operates independently of BoringTun. It uses the same \texttt{ml-kem} crate and provides three subcommands implementing a manual three-step ML-KEM-768 key exchange: \texttt{keygen} (generates an ML-KEM-768 keypair, encapsulation key as base64 for transfer, decapsulation seed kept secret), \texttt{encaps <ek\_file>} (runs ML-KEM.Encaps, outputs the ciphertext as base64 and the 32-byte shared secret as a base64 PSK, the format WireGuard's \texttt{wg set} expects), and \texttt{decaps <dk\_file> <ct\_file>} (runs ML-KEM.Decaps, recovers the identical 32-byte PSK). The encapsulation key and ciphertext files are exchanged out-of-band; the tool itself does not implement a network protocol. Both peers then configure their WireGuard interface with the derived PSK using \texttt{wg set <iface> peer <PUBKEY> preshared-key psk.b64}.
 
 \subsection{Test harness}
 
-The \texttt{noise::tests} module contains unit tests for both vanilla and PQ handshake paths, conditionally compiled. They cover PQ handshake message validation (initiation = 1332~B, response = 1180~B), full PQ handshakes (four-step exchange including keepalive), end-to-end data transport, simultaneous PQ + PSK operation, and verification that a vanilla build rejects PQ message types. A separate shell script automates operational testing on macOS with loopback tunnel, comparison, and demo modes.
+The \texttt{noise::tests} module contains unit tests for both vanilla and PQ handshake paths, conditionally compiled. They cover PQ handshake message validation (initiation = 1332~B, with the 1180~B response size exercised by the full-handshake test), full PQ handshakes (four-step exchange including keepalive), end-to-end data transport, simultaneous PQ + PSK operation, and verification that a vanilla build rejects PQ message types. A separate shell script automates operational testing on macOS with loopback tunnel, comparison, and demo modes.
 
 \section{Security Analysis}
 \label{sec:security}
@@ -291,7 +291,7 @@ The hybrid handshake is evaluated along several axes: handshake latency, transpo
     \item \textbf{AMD Ryzen 7 5700X:} 8-core / 16-thread, AVX2, Ubuntu 26.04 inside WSL2 on Windows. Included so the implementation is not measured exclusively on ARM, and so that any ARM-specific artefact in the \texttt{x25519-dalek} backend (which lacks a NEON port) shows up against an x86 control.
 \end{itemize}
 
-Three configurations are compared: \textbf{Vanilla} (unmodified BoringTun, no PSK), \textbf{PSK-slot} (BoringTun with a WireGuard PSK derived from a one-time ML-KEM-768 exchange via \texttt{pq-psk-tool}), and \textbf{Hybrid} (modified BoringTun with the full X25519 + ML-KEM-768 hybrid handshake). The \texttt{pq} Cargo feature is a compile-time switch: when the binary is built with \texttt{--features pq}, \emph{all} tunnels go through the hybrid handshake path. Vanilla and PSK-slot numbers come from a separate build without the feature; hybrid numbers come from a PQ-enabled build. All microbenchmarks are driven by Criterion~\cite{criterion}, with per-benchmark warm-up, outlier detection, and bootstrapped 95\% confidence intervals. For the handshake benchmark, two \texttt{Tunn} instances exchange bytes in-process via function calls on the same machine, with no sockets in the loop, so the measurement reflects pure cryptographic cost.
+Three configurations are compared: \textbf{Vanilla} (unmodified BoringTun, no PSK), \textbf{PSK-slot} (BoringTun with a WireGuard PSK derived from a one-time ML-KEM-768 exchange via \texttt{pq-psk-tool}), and \textbf{Hybrid} (modified BoringTun with the full X25519 + ML-KEM-768 hybrid handshake). The \texttt{pq} Cargo feature is a compile-time switch: when the binary is built with \texttt{--features pq}, \emph{all} tunnels go through the hybrid handshake path. Vanilla and PSK-slot numbers come from a separate build without the feature; hybrid numbers come from a PQ-enabled build. All microbenchmarks are driven by Criterion~\cite{criterion}, with per-benchmark warm-up, outlier detection, and bootstrapped 95\% confidence intervals. For the handshake benchmark, two \texttt{Tunn} instances exchange bytes in-process via function calls on the same machine, with no sockets in the loop, so the measurement reflects pure cryptographic cost. For transport throughput, \texttt{iperf3} is run in two setups (M4 loopback and M4-to-Pi cross-device over Wi-Fi); each figure is the mean of ten independent 15-second runs, reported with a 95\% confidence interval computed from the sample standard deviation under a normal approximation.
 
 \subsection{Handshake latency}
 \label{sec:eval_handshake}
@@ -331,10 +331,10 @@ A caveat: the loopback setup measures cryptographic cost only, not the time to p
 
 \begin{table}[H]
 \centering
-\caption{Handshake packet sizes and post-handshake transport throughput (\texttt{iperf3}, $t=15$~s).}
+\caption{Handshake packet sizes and post-handshake transport throughput (\texttt{iperf3}; throughput is the mean of ten 15-second runs, with 95\% CIs given in the text).}
 \label{tab:size_and_throughput}
-\begin{minipage}[t]{0.42\textwidth}\centering
-\small\setlength{\tabcolsep}{4pt}
+\begin{minipage}[t]{0.44\textwidth}\centering
+\small\setlength{\tabcolsep}{3pt}
 \begin{tabular}{@{}lrrr@{}}
 \toprule
 \textbf{Config.} & \textbf{Init (B)} & \textbf{Resp (B)} & \textbf{Total (B)} \\
@@ -351,10 +351,10 @@ Hybrid    & 1332  & 1180  & 2512 \\
 \toprule
 \textbf{Config.} & \textbf{Setup} & \textbf{Mbps} \\
 \midrule
-Vanilla & M4 loopback                     & 489 \\
-Hybrid  & M4 loopback                     & 491 \\
-Vanilla & M4 $\rightarrow$ Raspberry Pi 5 & 78.6 \\
-Hybrid  & M4 $\rightarrow$ Raspberry Pi 5 & 77.5 \\
+Vanilla & M4 loopback                     & 473.1 \\
+Hybrid  & M4 loopback                     & 469.4 \\
+Vanilla & M4 $\rightarrow$ Raspberry Pi 5 & 85.4 \\
+Hybrid  & M4 $\rightarrow$ Raspberry Pi 5 & 79.4 \\
 \bottomrule
 \end{tabular}
 \end{minipage}
@@ -362,7 +362,7 @@ Hybrid  & M4 $\rightarrow$ Raspberry Pi 5 & 77.5 \\
 
 PSK-slot packet sizes equal vanilla because the PSK never appears on the wire; it is mixed into the key derivation chain locally. The hybrid carries the encapsulation key in the initiation (+1184~B) and the ciphertext in the response (+1088~B), for 2272 bytes of additional handshake traffic, fixed by the ML-KEM-768 specification.
 
-Throughput is essentially identical across configurations, as expected. All three use the same ChaCha20-Poly1305 data plane once the handshake is done, so throughput parity is the only reasonable outcome; any difference would point to an implementation bug. The $\sim$490~Mbps M4 loopback figure is CPU-bound on a single core; the $\sim$78~Mbps Wi-Fi figure reflects the link, not the Pi's crypto capacity. A Pi-only loopback test is not included because the Linux kernel routes traffic between two WireGuard interfaces on the same host directly, bypassing encryption; without network namespaces to force real encapsulation the measurements would not be reliable.
+Throughput is statistically indistinguishable across configurations, as expected: in both setups the vanilla and hybrid 95\% confidence intervals overlap. On M4 loopback the two land within about 4~Mbps of each other on a $\sim$470~Mbps baseline (vanilla 473.1 [468.6, 477.6], hybrid 469.4 [466.2, 472.6]), a figure that is CPU-bound on a single core. The cross-device numbers are lower and noticeably noisier --- vanilla 85.4 [79.3, 91.5], hybrid 79.4 [73.6, 85.2] over Wi-Fi --- where the $\sim$10~Mbps run-to-run spread comfortably absorbs the 6~Mbps gap between configurations and reflects the wireless link rather than the Pi's crypto capacity. All three configurations use the same ChaCha20-Poly1305 data plane once the handshake is done, so throughput parity is the only reasonable outcome; any difference would point to an implementation bug. A Pi-only loopback test is not included because the Linux kernel routes traffic between two WireGuard interfaces on the same host directly, bypassing encryption; without network namespaces to force real encapsulation the measurements would not be reliable.
 
 \subsection{ML-KEM and X25519 microbenchmarks}
 
@@ -442,7 +442,7 @@ Where the choice actually matters is the wire. The 1280-byte IPv6 minimum MTU is
 \subsection{Path-MTU sweep}
 \label{sec:eval_mtu}
 
-The hybrid initiation is 1332 bytes (\cref{tab:size_and_throughput}), which fits a 1500-byte Ethernet path comfortably but does not fit any path with an effective MTU below 1332. The testbed brings up two Linux network namespaces connected by a veth pair, runs BoringTun in each, and sweeps the veth MTU across values that straddle the hybrid initiation size. Each cell is 10 cold trials; latency is the first-packet ping RTT, which subsumes the handshake cost.
+The hybrid initiation is 1332 bytes (\cref{tab:size_and_throughput}), which fits a 1500-byte Ethernet path comfortably but does not fit any path whose effective MTU is below roughly 1360 bytes --- the 1332-byte initiation plus its IP and UDP headers. The testbed brings up two Linux network namespaces connected by a veth pair, runs BoringTun in each, and sweeps the veth MTU across values that straddle the hybrid initiation size. Each cell is 10 cold trials; latency is the first-packet ping RTT, which subsumes the handshake cost.
 
 \begin{table}[H]
 \centering
@@ -474,7 +474,7 @@ Hybrid  & 1280 & yes & 10/10 & 3.13 \\
 \end{tabular}
 \end{table}
 
-The headline: the hybrid handshake completes 10/10 at every cell, including the cells where the 1332-byte initiation does not fit the path MTU and must be fragmented by the kernel. p50 latency stays in a 1.7--3.3~ms band across the entire sweep. The hybrid is 0.5--1~ms slower than vanilla on most cells, which is the in-process ML-KEM cost from \cref{tab:handshake_latency} carried through into a real socket path. There is no cliff at the 1332-byte boundary: kernel-level IP fragmentation is transparent to userspace WireGuard and adds at most a few hundred microseconds on this hardware.
+The headline: the hybrid handshake completes 10/10 at every cell, including the cells where the 1332-byte initiation does not fit the path MTU and must be fragmented by the kernel. p50 latency stays in a 1.7--3.3~ms band across the entire sweep. The hybrid is 0.5--1~ms slower than vanilla on most cells, which is the in-process ML-KEM cost from \cref{tab:handshake_latency} carried through into a real socket path. There is no cliff at the fragmentation boundary (around 1360 bytes of path MTU, where the 1332-byte initiation plus its IP and UDP headers no longer fits a single datagram): kernel-level IP fragmentation is transparent to userspace WireGuard and adds at most a few hundred microseconds on this hardware.
 
 A methodology note on the \emph{drop\_frags} column. The intent was to simulate a middlebox that silently drops IPv4 fragments after the first, using an iptables rule \texttt{-A INPUT -i \$veth -f -j DROP} on the responder. The rule installs without error but the success column reads 10/10 even where fragmentation is forced. The reason is that any non-trivial netfilter ruleset on a modern Linux kernel implicitly loads \texttt{nf\_defrag\_ipv4}, which reassembles fragments at the conntrack stage --- which runs \emph{before} the filter table. By the time INPUT sees the packet it is no longer a fragment, so the \texttt{-f} match never fires. To genuinely test fragment-dropping middlebox behaviour would require either a \texttt{raw}-table rule (which runs before conntrack), an nftables match pinned to the pre-conntrack hook, or a third intermediary netns doing the drop on its forwarding path. None of those changes are in the testbed used here; the supported claim is the more limited but honest one that BoringTun's hybrid handshake survives IP-layer fragmentation cleanly across all measured MTUs, with the fragment-hostile-middlebox case left for future work.
 
@@ -581,9 +581,9 @@ The hybrid makes more sense when the threat model includes not just passive HNDL
 
 \subsection{Deployment considerations}
 
-\textbf{MTU management} is the most pressing operational concern. Network paths with an effective MTU below 1332 bytes will fragment the hybrid initiation message. The MTU sweep in \cref{sec:eval_mtu} confirms that BoringTun's hybrid handshake completes cleanly across MTUs from 1280 to 1500 when the path is fragmentation-tolerant. What the testbed could not test is the case operators actually worry about: a firewall, middlebox, or ISP that silently drops IP fragments. Properly simulating a fragment-hostile middlebox requires either pre-conntrack hooks or a separate forwarding netns, both future work. The recommended treatment is still to assume some paths drop fragments and to either negotiate a lower MTU for the VPN interface or push toward application-level segmentation or PMTUD-driven parameter selection.
+\textbf{MTU management} is the most pressing operational concern. Network paths with an effective MTU below roughly 1360 bytes (the 1332-byte initiation plus its IP and UDP headers) will fragment the hybrid initiation message. The MTU sweep in \cref{sec:eval_mtu} confirms that BoringTun's hybrid handshake completes cleanly across MTUs from 1280 to 1500 when the path is fragmentation-tolerant. What the testbed could not test is the case operators actually worry about: a firewall, middlebox, or ISP that silently drops IP fragments. Properly simulating a fragment-hostile middlebox requires either pre-conntrack hooks or a separate forwarding netns, both future work. The recommended treatment is still to assume some paths drop fragments and to push toward application-level segmentation or PMTUD-driven parameter selection. One thing that does \emph{not} help, despite being the obvious first reflex, is lowering the WireGuard interface MTU: that shrinks the encapsulated data packets, not the fixed-size handshake messages, so the fragmentation has to be solved in the handshake itself.
 
-\textbf{Interoperability} is a constraint: both endpoints must run the hybrid-capable BoringTun. A vanilla WireGuard peer rejects the extended handshake messages outright (unknown fields cause MAC verification to fail). Some form of capability negotiation --- a reserved field in the handshake, or simply an out-of-band configuration flag --- would be needed for gradual rollout. This is an engineering problem, not a fundamental one.
+\textbf{Interoperability} is a constraint: both endpoints must run the hybrid-capable BoringTun. A vanilla WireGuard peer rejects the extended handshake messages outright: the post-quantum message types (5 and 6) are unrecognized, so the packet is dropped as invalid at type dispatch, before MAC verification is ever attempted. Some form of capability negotiation --- a reserved field in the handshake, or simply an out-of-band configuration flag --- would be needed for gradual rollout. This is an engineering problem, not a fundamental one.
 
 \textbf{Key management} is actually simpler with the hybrid than with the PSK-slot approach: X25519 static keys are managed as before, and the ML-KEM ephemeral keys are generated and discarded within each handshake. There is nothing new to distribute or rotate.
 
@@ -591,7 +591,7 @@ The hybrid makes more sense when the threat model includes not just passive HNDL
 
 \subsection{Authentication agility and future work}
 
-Authentication in this paper remains classical (X25519 static keys), which means it is quantum-vulnerable. A future version could extend the authentication layer to ML-DSA (FIPS 204) for post-quantum signatures, or use static ML-KEM keys for authentication as PQ-WireGuard and Hybrid-WireGuard do. Either option significantly increases key management complexity (ML-DSA public keys are around 1312 bytes, compared to 32 bytes for X25519). Leaving authentication classical is a deliberate choice, consistent with NIST's guidance~\cite{nistir8547} that key-agreement migration (where HNDL attacks apply) is more urgent than signature migration (where past signatures cannot be retroactively forged).
+Authentication in this paper remains classical (X25519 static keys), which means it is quantum-vulnerable. A future version could extend the authentication layer to ML-DSA (FIPS 204) for post-quantum signatures, or use static ML-KEM keys for authentication as PQ-WireGuard and Hybrid-WireGuard do. Either option significantly increases key management complexity (ML-DSA-65 public keys, the security-level match for ML-KEM-768, are 1952 bytes, compared to 32 bytes for X25519). Leaving authentication classical is a deliberate choice, consistent with NIST's guidance~\cite{nistir8547} that key-agreement migration (where HNDL attacks apply) is more urgent than signature migration (where past signatures cannot be retroactively forged).
 
 \textbf{Rosenpass integration.} A natural extension of the PSK-slot baseline is to integrate with the Rosenpass daemon, which continuously refreshes the WireGuard PSK using post-quantum key exchange. The combination of Rosenpass-managed PSKs and the hybrid handshake would provide layered post-quantum security; however, careful analysis is needed to confirm that double-layering does not introduce new vulnerabilities.
 
@@ -605,9 +605,11 @@ Authentication in this paper remains classical (X25519 static keys), which means
 
 \subsection{Positioning within the broader landscape}
 
-It is worth being explicit about where this work sits relative to existing literature. It targets a production Rust codebase (BoringTun), unlike most academic proposals that use prototype implementations. It uses NIST-standardized ML-KEM (FIPS 203), unlike PQ-WireGuard (Saber, McEliece) and Rosenpass (Kyber before standardization). It is hybrid (X25519 + ML-KEM), unlike PQ-WireGuard which is purely post-quantum. It modifies the Noise handshake directly for the full hybrid, unlike the PSK-slot approaches (Rosenpass, ExpressVPN). And it evaluates across multiple hardware platforms including ARM, providing empirical data relevant to constrained deployments.
+It is worth being clear about where this work sits relative to the existing literature, since it differs from prior efforts in a few important ways. Most academic PQ-WireGuard proposals are built on research prototypes; this work instead targets BoringTun, a production Rust codebase already deployed on millions of devices. It commits to NIST-standardized ML-KEM (FIPS 203), rather than the pre-standardization or alternative primitives of earlier efforts --- Saber and Classic McEliece in PQ-WireGuard, Kyber before standardization in Rosenpass. And it is deliberately hybrid, pairing X25519 with ML-KEM so that a break in either primitive still leaves the session protected, whereas PQ-WireGuard is purely post-quantum.
 
-The closest academic work is Hybrid-WireGuard~\cite{lafourcade2025hybrid}, which provides formal security proofs for a hybrid protocol. This paper complements that work: where they provide the proofs, this paper provides an implementation in a real-world Rust codebase and empirical performance data across three platforms.
+The construction differs too: for the full hybrid, the Noise handshake is modified directly, rather than carrying the post-quantum secret through the PSK slot as Rosenpass and ExpressVPN do. The evaluation, in turn, spans three platforms across two architectures --- two ARM tiers (Apple M4 and Raspberry Pi 5) and an x86\_64 control (Ryzen 7 5700X) --- which makes the measurements directly relevant to the constrained, edge-class deployments this work targets.
+
+The closest academic work is the Hybrid-WireGuard proposal of Lafourcade et al.~\cite{lafourcade2025hybrid}; the two are complementary rather than overlapping. Their work proves a hybrid protocol secure, while this paper implements one in a production codebase and measures its cost across real hardware. Their proofs are the formal counterpart to the informal argument made here.
 
 \section{Conclusion}
 \label{sec:conclusion}
@@ -623,7 +625,7 @@ On the engineering side, the main challenge is the larger handshake messages: ML
 With NIST's 2030 deprecation deadline for classical key exchange approaching~\cite{nistir8547} and the harvest-now-decrypt-later threat no longer hypothetical, post-quantum key exchange for VPN protocols is becoming an operational requirement rather than a research exercise. This paper offers a practical starting point for WireGuard's migration, built on NIST standards and tested on hardware spanning high-performance and resource-constrained environments.
 
 \paragraph{Artefact availability.}
-Source code for the modified BoringTun (with the \texttt{pq} Cargo feature), the \texttt{pq-psk-tool} binary, the Criterion benchmark harness, the network-namespace testbeds for MTU and RTT/loss sweeps, the handshake-flood DoS example, and the memory probe is available in the project repository.
+Source code for the modified BoringTun (with the \texttt{pq} Cargo feature), the \texttt{pq-psk-tool} binary, the Criterion benchmark harness, the network-namespace testbeds for MTU and RTT/loss sweeps, the handshake-flood DoS example, and the memory probe is available at \url{https://github.com/mihaicristianfarcas/pq-boringtun}.
 
 \paragraph{Declaration of generative AI use.}
 During the preparation of this work the author used Claude (Anthropic's large language model) via the Claude Code CLI tool as a coding assistant while implementing the hybrid handshake and PSK-slot tool in Rust, for designing and interpreting the benchmarks, and as an editor to tighten the prose and catch places where the written descriptions had drifted from what the code actually does. The author reviewed and edited all content and takes full responsibility for it.
