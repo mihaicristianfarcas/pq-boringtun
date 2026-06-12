@@ -71,7 +71,9 @@
     \draw[timeline] (kem_resp.south) -- +(0,-14cm);
     
     % KEM Row 1: Initiator generates keypair (asymmetric!)
-    \coordinate (kem_r1a) at ($(kem_init.south)-(0,2cm)$);
+    % Placed lower than the DH side's first row to avoid visual crowding
+    % across the gap between the two diagrams.
+    \coordinate (kem_r1a) at ($(kem_init.south)-(0,3.2cm)$);
     \node[action, anchor=east] at ($(kem_r1a)+(-0.3cm,0)$) {$(ek, dk) \gets \textsf{KeyGen}()$\\Public: $ek$, Private: $dk$};
 
     % KEM Row 2: Initiator sends encapsulation key
