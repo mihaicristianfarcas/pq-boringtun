@@ -7,8 +7,8 @@
 //! -----------
 //! * Criterion drives every measurement: each configuration gets its own
 //!   warm-up phase, outlier detection, and bootstrapped 95% confidence
-//!   intervals. This removes the cross-configuration warm-up artefact that
-//!   the previous hand-rolled `Instant::now()` loop suffered from.
+//!   intervals, so no configuration inherits caches or branch-predictor
+//!   state warmed by another.
 //! * In non-`pq` builds the registration order of `vanilla` vs `psk-slot`
 //!   is randomised per run (coin flip from `OsRng`) so any residual
 //!   ordering bias averages out across repeated invocations.
