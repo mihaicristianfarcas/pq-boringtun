@@ -25,6 +25,14 @@
 \microtypesetup{expansion=false}                % Font expansion is not supported in XeTeX (Tectonic)
 \usepackage[babel=true]{csquotes}               % proper quotation marks
 
+% Line-breaking robustness: let TeX relax spacing as a last resort instead of
+% letting words bleed past the margin (overfull hboxes). Combined with microtype
+% protrusion, this clears nearly all overfull boxes; \hbadness silences the
+% harmless loose-line warnings the extra stretch can introduce.
+\tolerance=2000
+\emergencystretch=3em
+\hbadness=2500
+
 % ----------------------------------------------------------------------------
 %  Colors & Links
 % ----------------------------------------------------------------------------
@@ -39,6 +47,7 @@
 \usepackage[
     unicode,
     pdfusetitle,
+    hypertexnames=false,                       % absolute page anchors: avoids duplicate "page.1" (title page vs. chapter 1)
     colorlinks=true,
     linkcolor=primary,
     citecolor=accent,
@@ -68,13 +77,13 @@
   [\vspace{1ex}\titlerule]
 
 \titleformat{\section}
-  {\normalfont\Large\bfseries\sffamily\color{primary}}
+  {\normalfont\Large\bfseries\sffamily\color{primary}\raggedright}
   {\thesection}
   {1em}
   {}
 
 \titleformat{\subsection}
-  {\normalfont\large\bfseries\sffamily\color{primary}}
+  {\normalfont\large\bfseries\sffamily\color{primary}\raggedright}
   {\thesubsection}
   {1em}
   {}

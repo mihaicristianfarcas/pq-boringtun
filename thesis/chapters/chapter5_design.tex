@@ -75,7 +75,7 @@ The modified handshake proceeds as follows:
     \bigskip
 
     \item[Initiator Decapsulation]
-    The initiator reads $\mathit{ct}$ from the responder's message and runs $\mathsf{ML\text{-}KEM.Decaps}(\mathit{dk}_i, \mathit{ct})$, recovering $\mathit{ss}_\mathit{kem}$. Both peers now hold the same $\mathit{ss}_\mathit{kem}$.
+    The initiator reads $\mathit{ct}$ from the responder's message and runs $\mathsf{ML\text{-}KEM.Decaps}(\mathit{dk}_i,\allowbreak \mathit{ct})$, recovering $\mathit{ss}_\mathit{kem}$. Both peers now hold the same $\mathit{ss}_\mathit{kem}$.
     
     \item[Combined Key Derivation]
     Both parties derive the final session keys by sequentially mixing each shared secret into the Noise chaining key $\mathit{ck}$ via HMAC-BLAKE2s, following the same pattern used by standard WireGuard for its DH results. The four X25519 shared secrets from the Noise IK pattern ($\mathit{ss}_\mathit{x25519\_es}$, $\mathit{ss}_\mathit{x25519\_ss}$, $\mathit{ss}_\mathit{x25519\_ee}$, $\mathit{ss}_\mathit{x25519\_se}$, in that order) are mixed first, exactly as in vanilla WireGuard. Then the ML-KEM shared secret $\mathit{ss}_\mathit{kem}$ is mixed into $\mathit{ck}$ as an additional step:
