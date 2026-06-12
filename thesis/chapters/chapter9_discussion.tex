@@ -13,13 +13,13 @@ Looking further ahead, the hybrid is better aligned with where things are going.
 
 Beyond the security analysis, several practical issues affect whether the hybrid handshake can actually be deployed:
 
-\textbf{MTU management} is the most pressing operational concern. Network paths with an effective MTU below 1,332 bytes will fragment the hybrid initiation message. Fragmentation is not universally supported: firewalls, middleware boxes, and some ISP configurations drop IP fragments. The current implementation relies on IP-level fragmentation, which works on most standard Ethernet paths (1,500-byte MTU). For deployment on paths where fragmentation is unreliable, future work could implement application-level segmentation (splitting ML-KEM material into separate datagrams) or Path MTU Discovery with KEM parameter negotiation. As a practical workaround, operators could configure WireGuard to negotiate a lower MTU for the VPN interface, reducing the usable payload MTU for encapsulated traffic.
+\textbf{MTU management} is the most pressing operational concern. Network paths with an effective MTU below roughly 1,360 bytes --- the 1,332-byte initiation plus its IP and UDP headers --- will fragment the hybrid initiation message. Fragmentation is not universally supported: firewalls, middleware boxes, and some ISP configurations drop IP fragments. The current implementation relies on IP-level fragmentation, which works on most standard Ethernet paths (1,500-byte MTU). For deployment on paths where fragmentation is unreliable, future work could implement application-level segmentation (splitting ML-KEM material into separate datagrams) or Path MTU Discovery with KEM parameter negotiation. One thing that does \emph{not} help, despite being the obvious first reflex, is lowering the WireGuard interface MTU: that shrinks the encapsulated data packets, not the fixed-size handshake messages, so the fragmentation has to be solved in the handshake itself.
 
 \textbf{Interoperability} is a constraint: both endpoints must run the hybrid-capable BoringTun. A vanilla WireGuard peer will reject the extended handshake messages outright: the post-quantum message types (5 and 6) are unrecognized, so the packet is dropped as invalid at type dispatch, before MAC verification is ever attempted. Some form of capability negotiation --- a reserved field in the handshake, or simply an out-of-band configuration flag --- would be needed for gradual rollout. This is an engineering problem, not a fundamental one.
 
 \textbf{Key management} is actually simpler with the hybrid than with the PSK-slot approach. X25519 static keys are managed as before, and the ML-KEM ephemeral keys are generated and discarded within each handshake. There is nothing new to distribute or rotate.
 
-\textbf{Performance on constrained hardware} matters for edge and IoT deployments. The Raspberry Pi 5 benchmarks (Chapter~\ref{chap:evaluation}) are intended as a proxy for ARM-based edge devices, and the picture they paint is encouraging: the hybrid handshake overhead on the Pi is sub-millisecond, well below the RTT of any realistic WAN path, so at this hardware tier handshake cost is dominated by the network rather than by ML-KEM computation.
+\textbf{Performance on constrained hardware} matters for edge and IoT deployments. The Raspberry Pi 5 benchmarks (Chapter~\ref{chap:evaluation}) are intended as a proxy for ARM-based edge devices, and the picture they paint is encouraging: the hybrid handshake overhead on the Pi is sub-millisecond, well below the RTT of any realistic WAN path, so at this hardware tier handshake cost is dominated by the network rather than by ML-KEM computation. The footprint matches: turning the hybrid on adds only about 65~KiB of code and a fraction of a megabyte of peak memory (Table~\ref{tab:footprint}), small enough to be a non-issue well below the Pi's hardware tier.
 
 \section{Authentication Agility and Future Work}
 
@@ -33,24 +33,14 @@ Leaving authentication classical is a deliberate choice, consistent with NIST's 
 
 \textbf{Parameter set agility:} The implementation currently targets ML-KEM-768. An extension could allow negotiation between ML-KEM-512 (smaller messages, NIST level 1) and ML-KEM-1024 (larger messages, NIST level 5) based on the available path MTU and the security requirements of the deployment.
 
-\textbf{MTU fragmentation handling:} The current implementation relies on IP-level fragmentation for paths with MTUs below 1,332 bytes. Two alternative strategies merit investigation: application-level segmentation, where the ML-KEM material is sent in a separate UDP datagram (adding a round trip but avoiding IP fragmentation), and Path MTU Discovery with KEM parameter negotiation, where the handshake selects an ML-KEM parameter set (e.g., ML-KEM-512 for constrained paths) that fits within the discovered MTU. Both approaches add protocol complexity and would require careful design to avoid introducing downgrade attacks.
+\textbf{MTU fragmentation handling:} The current implementation relies on IP-level fragmentation for paths with MTUs below roughly 1,360 bytes (the 1,332-byte initiation plus IP and UDP headers). Two alternative strategies merit investigation: application-level segmentation, where the ML-KEM material is sent in a separate UDP datagram (adding a round trip but avoiding IP fragmentation), and Path MTU Discovery with KEM parameter negotiation, where the handshake selects an ML-KEM parameter set (e.g., ML-KEM-512 for constrained paths) that fits within the discovered MTU. Both approaches add protocol complexity and would require careful design to avoid introducing downgrade attacks.
 
 \textbf{Crypto-agility concerns:} WireGuard's deliberate lack of cipher agility is a security strength — it prevents protocol downgrade attacks of the kind that have plagued TLS. The hybrid implementation should not introduce algorithm negotiation that could be exploited for downgrade attacks. The recommended approach is to configure the ML-KEM parameter set at the operator level, not to negotiate it per-connection.
 
 \section{Positioning within the Broader PQ-WireGuard Landscape}
 
-It is worth being explicit about where this thesis sits relative to the existing work:
+It is worth being clear about where this thesis sits relative to the existing work, since it differs from prior efforts in a few important ways. Most academic PQ-WireGuard proposals are built on prototype implementations; this work targets a production Rust codebase already running on millions of devices. It commits to NIST-standardized ML-KEM (FIPS 203), rather than the pre-standardization or alternative primitives used by earlier efforts --- Saber and McEliece in PQ-WireGuard, Kyber before standardization in Rosenpass. And it is deliberately hybrid, pairing X25519 with ML-KEM so that a break in either primitive still leaves the session protected, whereas PQ-WireGuard is purely post-quantum.
 
-\begin{itemize}
-\item It targets a production Rust codebase (BoringTun), unlike most academic proposals which use prototype implementations.
+The construction also differs. For the full hybrid, the Noise handshake is modified directly, rather than carrying the post-quantum secret through the PSK slot as Rosenpass and ExpressVPN do. The evaluation, in turn, spans more than one hardware tier on ARM devices (though the implementation is not ARM-specific, and it would perform well on x86_64 platforms as well) which makes the measurements in Chapter~\ref{chap:evaluation} directly relevant to the constrained, edge-class deployments this work targets.
 
-\item It uses NIST-standardized ML-KEM (FIPS 203), unlike PQ-WireGuard (Saber, McEliece) and Rosenpass (Kyber before standardization).
-
-\item It is hybrid (X25519 + ML-KEM), unlike PQ-WireGuard which is purely post-quantum.
-
-\item It modifies the Noise handshake directly for the full hybrid, unlike the PSK-slot approaches (Rosenpass, ExpressVPN).
-
-\item It evaluates across multiple hardware platforms including ARM, providing empirical data relevant to constrained deployments.
-\end{itemize}
-
-The closest academic work is the Hybrid-WireGuard proposal of Lafourcade et al.~\cite{lafourcade2025hybrid}, which provides formal security proofs for a hybrid protocol. This thesis complements that work: where they provide the proofs, this thesis provides an implementation in a real-world Rust codebase and empirical performance data. The informal security analysis here gestures toward the kind of formal argument their work makes rigorous.
+The closest academic work is the Hybrid-WireGuard proposal of Lafourcade et al.~\cite{lafourcade2025hybrid}; the two are complementary rather than overlapping. Their work proves a hybrid protocol secure, while this thesis implements one in a production codebase and measures its cost. Their proofs are the formal counterpart to the informal argument made here.

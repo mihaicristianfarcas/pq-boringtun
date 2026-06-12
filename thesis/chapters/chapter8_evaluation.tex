@@ -99,11 +99,11 @@ Beyond the throughput numbers themselves, the cross-device runs provide direct e
 
 \section{Resource Footprint}
 
-The hybrid handshake also carries a static and a runtime memory cost, both of which matter for the constrained-device deployments the Raspberry Pi stands in for. Table~\ref{tab:footprint} compares an optimised release build of \texttt{boringtun-cli} with and without the \texttt{pq} feature on the M4. Recall from Chapter~\ref{chap:implementation} that a vanilla build is byte-for-byte identical to upstream when the feature is absent; the comparison here therefore measures the cost of \emph{enabling} the feature, not of merely carrying gated code.
+The hybrid handshake also carries a static and a runtime memory cost, both of which matter for the constrained-device deployments the Raspberry Pi stands in for. Table~\ref{tab:footprint} compares an optimized release build of \texttt{boringtun-cli} with and without the \texttt{pq} feature on the M4. Recall from Chapter~\ref{chap:implementation} that a vanilla build is byte-for-byte identical to upstream when the feature is absent; the comparison here therefore measures the cost of \emph{enabling} the feature, not of merely carrying gated code.
 
 \begin{table}[H]
 \centering
-\caption{Static and runtime footprint, vanilla vs hybrid (M4, optimised release build). Binary sizes are stripped; peak RSS is the maximum resident set of a running \texttt{boringtun-cli} peer, sampled under an \texttt{iperf3} load over a loopback tunnel.}
+\caption{Static and runtime footprint, vanilla vs hybrid (M4, optimized release build). Binary sizes are stripped; peak RSS is the maximum resident set of a running \texttt{boringtun-cli} peer, sampled under an \texttt{iperf3} load over a loopback tunnel.}
 \label{tab:footprint}
 \begin{tabular}{@{}lrrr@{}}
 \toprule
