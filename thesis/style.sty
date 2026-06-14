@@ -187,6 +187,9 @@
 
 \DeclareRobustCommand*{\specialization}[1]{\gdef\@specialization{#1}}
 \DeclareRobustCommand*{\supervisor}[1]{\gdef\@supervisor{#1}}
+% Optional Romanian-language title for the bilingual title page.
+% Defaults to \@title if not set.
+\DeclareRobustCommand*{\romaniantitle}[1]{\gdef\@romaniantitle{#1}}
 
 \ifbool{@eng}{\usepackage[english]{babel}}{\usepackage[romanian]{babel}}
 
@@ -229,7 +232,7 @@ Specializarea: \@specialization
 \begin{minipage}[t]{0.45\textwidth}
 \begin{flushleft}
 \large
-\textbf{\sffamily\ifbool{@eng}{Supervisor}{Conducător științific}:}\\[0.3em]
+\textbf{\sffamily\ifbool{@eng}{Scientific coordinator}{Coordonator științific}:}\\[0.3em]
 \@supervisor
 \end{flushleft}
 \end{minipage}
@@ -238,6 +241,60 @@ Specializarea: \@specialization
 \begin{flushright}
 \large
 \textbf{\sffamily\ifbool{@eng}{Author}{Absolvent}:}\\[0.3em]
+\@author
+\end{flushright}
+\end{minipage}
+
+\vspace{2cm}
+
+{\Large\textbf{\sffamily\the\year}}
+
+\end{center}
+\end{titlepage}
+}
+
+% ----------------------------------------------------------------------------
+%  Romanian Title Page (required by UBB Ghid: title page in the specialization
+%  language and in Romanian). Rendered regardless of the document language.
+% ----------------------------------------------------------------------------
+\newcommand{\maketitleromanian}
+{
+\begin{titlepage}
+\begin{center}
+
+\vspace*{0.5cm}
+{\Large\textbf{\textsc{\sffamily
+Universitatea Babeș-Bolyai Cluj-Napoca \\[0.3em]
+Facultatea de Matematică și Informatică \\[0.3em]
+Specializarea: \@specialization
+}}}
+
+\vspace{4cm}
+
+{\LARGE\textbf{\sffamily
+\ifbool{@dis}{LUCRARE DE DISERTAȚIE}{}
+\ifbool{@lic}{LUCRARE DE LICENȚĂ}{}
+}}
+
+\vspace{0.8cm}
+
+{\huge\bfseries\sffamily\color{primary}%
+\ifcsname @romaniantitle\endcsname\@romaniantitle\else\@title\fi\par}
+
+\vfill
+
+\begin{minipage}[t]{0.45\textwidth}
+\begin{flushleft}
+\large
+\textbf{\sffamily Coordonator științific:}\\[0.3em]
+\@supervisor
+\end{flushleft}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.45\textwidth}
+\begin{flushright}
+\large
+\textbf{\sffamily Absolvent:}\\[0.3em]
 \@author
 \end{flushright}
 \end{minipage}
