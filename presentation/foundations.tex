@@ -1,0 +1,959 @@
+%==============================================================================
+%  Thesis Defense -- Theoretical Foundations (Study Companion)
+%  Hybrid Post-Quantum Key Exchange for WireGuard (X25519 + ML-KEM-768)
+%  Mihai-Cristian Farcas
+%
+%  A revision companion to read side-by-side with the thesis. Each topic is a
+%  self-contained briefing; cross-references point to the thesis section where
+%  the concept is used.
+%
+%  Build:  tectonic foundations.tex
+%==============================================================================
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=2.3cm]{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{parskip}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{titlesec}
+\usepackage[hidelinks]{hyperref}
+
+\definecolor{deepcyan}{HTML}{0C6E6E}
+\definecolor{softgray}{HTML}{555555}
+\definecolor{boxbg}{HTML}{E9F2F2}
+\definecolor{rulegray}{HTML}{BBBBBB}
+
+\hypersetup{
+  pdftitle={Theoretical Foundations -- Defense Study Companion},
+  pdfauthor={Mihai-Cristian Farcas},
+  colorlinks=true, linkcolor=deepcyan, urlcolor=deepcyan,
+}
+
+% ---- section styling ---------------------------------------------------------
+\titleformat{\section}
+  {\Large\bfseries\color{deepcyan}}{\thesection}{0.6em}{}
+\titleformat{\subsection}
+  {\large\bfseries\color{deepcyan}}{\thesubsection}{0.6em}{}
+\titlespacing*{\section}{0pt}{1.6em}{0.6em}
+
+% ---- "maps to thesis" line ---------------------------------------------------
+\newcommand{\seethesis}[1]{%
+  {\small\color{softgray}\textit{In the thesis: #1}}\par\vspace{3pt}}
+
+% ---- highlight box for likely committee questions ----------------------------
+\newcommand{\keyq}[1]{%
+  \par\vspace{0.4em}%
+  \noindent\colorbox{boxbg}{%
+    \parbox{\dimexpr\textwidth-2\fboxsep}{%
+      \small\textbf{\color{deepcyan}If they probe.}\ #1}}%
+  \par\vspace{0.5em}}
+
+% ---- one-line "in one sentence" lead -----------------------------------------
+\newcommand{\nutshell}[1]{\noindent\textit{In one sentence:} #1\par\vspace{4pt}}
+
+\setlist[itemize]{leftmargin=1.4em,itemsep=2pt,topsep=2pt}
+\setlist[enumerate]{leftmargin=1.6em,itemsep=2pt,topsep=2pt}
+\setcounter{tocdepth}{2}
+
+\pagestyle{plain}
+
+\begin{document}
+
+%--- title --------------------------------------------------------------------
+\begin{center}
+  {\LARGE\bfseries\color{deepcyan}Theoretical Foundations}\\[3pt]
+  {\large\bfseries\color{deepcyan}A Defense Study Companion}\\[8pt]
+  {\large Hybrid Post-Quantum Key Exchange for WireGuard (X25519 + ML-KEM-768)}\\[6pt]
+  {\normalsize Mihai-Cristian Farca\c{s} \quad\textbar\quad Supervisor: Prof.\ Dr.\ Darabant Sergiu Adrian}
+\end{center}
+
+\vspace{0.6em}
+\noindent\textbf{How to use this.} This is a briefing book, not a second thesis.
+Each entry is short on purpose: enough to answer a committee question with
+confidence and to follow up one level deeper if pressed. Read it alongside the
+thesis --- every entry names the section(s) where the concept actually does work
+in your argument. The grey \textit{``In the thesis''} line is your jump label;
+the shaded \textbf{``If they probe''} boxes pre-empt the obvious follow-up.
+
+\vspace{0.4em}
+\noindent\textbf{The one-paragraph anchor.} Everything below serves a single
+claim: \emph{WireGuard's key exchange relies on X25519, an elliptic-curve
+Diffie--Hellman that a large quantum computer would break via Shor's algorithm;
+this thesis adds ML-KEM-768 (FIPS 203) alongside X25519 in a hybrid
+``concatenate-then-KDF'' construction inside BoringTun, behind a \texttt{pq}
+compile flag, so that a session stays confidential as long as \emph{either}
+primitive holds --- and quantifies the cost on real hardware.} Keep that
+sentence in your head; each topic is a spoke off it.
+
+\vspace{0.4em}
+{\small\color{softgray}\noindent Build: \texttt{tectonic foundations.tex}. Theme matches the slide deck and speaker script.}
+
+\vspace{0.8em}
+\hrule height 1pt
+\tableofcontents
+\vspace{0.6em}
+\hrule height 1pt
+
+%==============================================================================
+\section{Networking and VPN Foundations}
+%==============================================================================
+This first group locates your work on the map: \emph{where} in the stack
+WireGuard sits, what it competes with, and the packet-size constraints that
+post-quantum messages bump into.
+
+%------------------------------------------------------------------------------
+\subsection{The OSI model and layer 3}
+\seethesis{\S2.2 (WireGuard's design); motivates why the work is transparent to applications.}
+\nutshell{WireGuard operates at the network layer (layer 3), so it secures whole
+IP packets and everything above them, invisibly to applications.}
+
+The OSI reference model is a seven-layer abstraction of networking: physical (1),
+data link (2), network (3), transport (4), session (5), presentation (6), and
+application (7). The two reference points you need are \textbf{layer 2}, which
+moves frames between directly-connected nodes (Ethernet, MAC addresses), and
+\textbf{layer 3}, the \emph{network} layer, which routes \emph{packets} across
+networks using IP addresses.
+
+WireGuard is a \textbf{layer-3} tunnel: it presents a virtual network interface,
+takes whole IP packets, encrypts each one, and ships it inside a UDP datagram to
+the peer. Because it works on IP packets, any transport- or application-layer
+protocol (TCP, QUIC, HTTP, DNS) rides over it without modification. This is the
+contrast with OpenVPN's TAP mode, which can tunnel at layer 2 (Ethernet frames).
+The practical consequence for your thesis: your change touches only how the
+\emph{tunnel key} is established; the data-plane that carries layer-3 traffic is
+untouched.
+
+%------------------------------------------------------------------------------
+\subsection{WireGuard}
+\seethesis{\S2.2 and \S2.2.1 (protocol + PSK slot); the whole thesis modifies it.}
+\nutshell{A deliberately minimal layer-3 VPN: one round-trip handshake built on
+the Noise framework, a fixed modern cipher suite, and roughly 4{,}000 lines of
+code.}
+
+WireGuard (Jason Donenfeld, 2017; in the mainline Linux kernel since 5.6) is a
+VPN built around radical simplicity. Its design choices, each of which you should
+be able to name:
+\begin{itemize}
+  \item \textbf{Fixed cryptography, no negotiation.} Unlike TLS or IPsec there
+  is no cipher-suite negotiation --- and therefore no downgrade attacks. The
+  suite is Curve25519 (X25519) for key agreement, ChaCha20-Poly1305 for
+  authenticated encryption, BLAKE2s for hashing and keyed MAC, and an
+  HMAC-based KDF. This rigidity is exactly why adding post-quantum security
+  means \emph{editing the protocol}, not flipping a negotiated option.
+  \item \textbf{1-RTT Noise IK handshake.} One message each way establishes a
+  session; see \S3 below.
+  \item \textbf{Cryptokey routing.} Each peer is bound to a set of
+  ``allowed IPs''; the public key \emph{is} the identity, which doubles as the
+  routing decision.
+  \item \textbf{Stateless under load / DoS resistance.} A cookie-reply
+  mechanism (the \texttt{mac1}/\texttt{mac2} fields) lets a loaded responder
+  defer state allocation until a client proves it can receive.
+  \item \textbf{Silence is a virtue.} It runs over UDP and does not reply to
+  unauthenticated packets.
+\end{itemize}
+BoringTun is Cloudflare's \emph{userspace} Rust implementation of this protocol
+--- the codebase you extended.
+
+\keyq{``Why is no negotiation a security feature?'' Negotiation is where
+downgrade attacks live (e.g.\ TLS's history). WireGuard's fixed suite removes
+that class entirely; the trade-off is that algorithm changes require a versioned
+protocol change --- which is precisely the surface your \texttt{pq} flag and new
+message types~5/6 add.}
+
+%------------------------------------------------------------------------------
+\subsection{IPsec}
+\seethesis{Background contrast to WireGuard; RFC 8784 parallels your PSK-slot baseline.}
+\nutshell{The older, standardized, kernel-level layer-3 VPN suite --- powerful
+but complex, with a separate key-exchange protocol (IKEv2).}
+
+IPsec is a suite (not one protocol) that secures IP at layer 3 using two data
+formats --- ESP (Encapsulating Security Payload, confidentiality + integrity)
+and AH (Authentication Header, integrity only) --- keyed by the \textbf{IKEv2}
+handshake. It is mature and ubiquitous but notoriously complex: many modes,
+options, and negotiation steps. Two points matter for you. First, it is the
+canonical ``heavyweight'' contrast that motivated WireGuard's minimalism.
+Second, the IETF's interim post-quantum answer for IPsec, \textbf{RFC 8784},
+mixes a \emph{pre-shared post-quantum key} into IKEv2 --- which is conceptually
+identical to your \textbf{PSK-slot baseline}: get PQ confidentiality without
+touching the asymmetric handshake, at the cost of out-of-band key distribution.
+
+%------------------------------------------------------------------------------
+\subsection{OpenVPN}
+\seethesis{Background contrast; representative TLS-based userspace VPN.}
+\nutshell{A long-established userspace VPN that rides on TLS/OpenSSL and can
+tunnel at layer 2 or 3 --- flexible and battle-tested, but heavier and slower
+than WireGuard.}
+
+OpenVPN builds its tunnel on top of a TLS session (historically via OpenSSL),
+typically over UDP. Its flexibility (certificates, pluggable ciphers, TAP layer-2
+or TUN layer-3 modes) is also its weight: a larger codebase, more configuration,
+and more overhead per packet than WireGuard. In your framing it is the
+``general-purpose, TLS-based'' point of comparison, against which WireGuard's
+fixed, lean Noise design stands out --- and it inherits TLS's post-quantum story
+rather than defining its own.
+
+%------------------------------------------------------------------------------
+\subsection{TLS}
+\seethesis{\S3.5 (related work: PQ via TLS PSK delivery); industry precedent for hybrids.}
+\nutshell{The transport-layer security protocol of the web; TLS 1.3 already
+ships a deployed hybrid X25519+ML-KEM-768 key exchange, which is the strongest
+real-world precedent for your design.}
+
+TLS secures byte streams \emph{above} the transport layer (it sits on TCP, or on
+QUIC at the application layer). TLS 1.3 reduced the handshake to one round trip
+and pruned legacy options. The reason it belongs in your defense is the
+precedent: in 2024 Chrome and Cloudflare turned on a \textbf{hybrid} key
+exchange named \texttt{X25519MLKEM768} --- the exact same primitives you combine,
+combined the same way (concatenate the two shared secrets, feed them through the
+KDF). So your thesis is not exotic; it transplants an approach the wider industry
+has already validated at scale into a protocol (WireGuard) that did not yet have
+it. Related-work \S3.5 also discusses delivering a PQ secret to WireGuard
+\emph{through} a TLS channel.
+
+\keyq{``Why not just rely on TLS being post-quantum?'' TLS protects different
+traffic (application byte streams), not the WireGuard tunnel itself. A WireGuard
+session's confidentiality depends on \emph{WireGuard's} handshake; fixing it
+requires changing that handshake, which is the contribution.}
+
+%------------------------------------------------------------------------------
+\subsection{MTU: the IPv4/IPv6 maximum transmission unit}
+\seethesis{\S5.5 (message size analysis) and \S9.2 (deployment).}
+\nutshell{The largest packet a link will carry in one piece; post-quantum
+handshake messages are bigger, so you have to show they still fit.}
+
+The MTU is the largest payload a link-layer technology will carry in a single
+frame --- classically 1500 bytes on Ethernet. Exceed it and the packet must be
+fragmented or dropped. The two IP versions differ crucially:
+\begin{itemize}
+  \item \textbf{IPv4} routers may fragment in transit; the guaranteed minimum
+  reassembly is small (576 bytes is the conventional safe figure).
+  \item \textbf{IPv6} forbids in-network fragmentation --- only the sender may
+  fragment --- and guarantees a \textbf{minimum MTU of 1280 bytes} on every
+  link.
+\end{itemize}
+Your post-quantum messages grow because ML-KEM-768 adds an encapsulation key
+($\approx$1184~B) and a ciphertext ($\approx$1088~B). The key result you defend:
+the PQ initiation ($\approx$1332~B) and response ($\approx$1180~B) each still fit
+inside a single 1500-byte Ethernet datagram, and even within the 1280-byte IPv6
+floor the response fits and the initiation needs only minimal fragmentation.
+Fragmentation only becomes a concern below a path MTU of roughly 1360 bytes.
+
+%------------------------------------------------------------------------------
+\subsection{PMTUD (Path MTU Discovery)}
+\seethesis{\S9.2 (deployment considerations and failure modes).}
+\nutshell{The mechanism hosts use to learn the smallest MTU along a path; it
+fails silently (``blackholes'') when the ICMP signals it relies on are
+filtered.}
+
+PMTUD lets a sender discover the smallest MTU on the path to a destination.
+In IPv4 the sender sets the ``Don't Fragment'' bit; a router that needs to
+fragment instead drops the packet and returns an ICMP ``fragmentation needed''
+message carrying the next-hop MTU. IPv6 does the analogous thing with ICMPv6
+``Packet Too Big.'' The well-known failure mode --- a \textbf{PMTUD blackhole}
+--- happens when firewalls filter those ICMP messages: the oversized packets
+just vanish with no feedback, and the connection hangs. This matters to you
+because if a path MTU were small enough to fragment the PQ handshake, and ICMP
+were filtered, the handshake could stall. Your defense is that the messages are
+sized to avoid fragmentation on normal paths in the first place, so PMTUD
+pathologies do not bite. Note also: lowering the WireGuard interface MTU does
+\emph{not} help, because the large packets are the UDP-encapsulated handshake on
+the outer path, not inner tunnel traffic.
+
+%==============================================================================
+\section{Classical Cryptographic Primitives}
+%==============================================================================
+These are the pieces WireGuard already uses, plus the hard problems they rest on.
+Know which ones quantum computers threaten (the public-key ones) and which they
+do not (the symmetric ones) --- that split is the entire rationale for the thesis.
+
+%------------------------------------------------------------------------------
+\subsection{Diffie--Hellman key exchange}
+\seethesis{\S2.1 (the quantum threat to public-key crypto); foundation for X25519.}
+\nutshell{The 1976 method by which two parties derive a shared secret over a
+public channel; WireGuard's whole handshake is a sequence of these.}
+
+Diffie--Hellman (DH) lets two parties who have never met agree on a shared secret
+visible to no eavesdropper. In the classic finite-field form, public parameters
+are a prime $p$ and generator $g$; Alice sends $g^a \bmod p$, Bob sends
+$g^b \bmod p$, and both compute $g^{ab}$. An eavesdropper sees $g^a$ and $g^b$
+but recovering $g^{ab}$ requires solving the \textbf{discrete logarithm problem}
+(DLP). DH provides \emph{key agreement}, not authentication --- on its own it is
+vulnerable to a meddler-in-the-middle, which is why WireGuard authenticates by
+mixing long-term static keys into the handshake. Crucially, DH (in both
+finite-field and elliptic-curve form) is broken by Shor's algorithm; this is the
+quantum problem your thesis addresses.
+
+%------------------------------------------------------------------------------
+\subsection{The integer factorization problem}
+\seethesis{\S2.1 (why classical public-key crypto falls to quantum).}
+\nutshell{Given a large $N = p\cdot q$, recover the primes $p$ and $q$ ---
+believed hard classically, easy for a quantum computer.}
+
+Factoring underpins RSA. The best classical algorithm, the General Number Field
+Sieve, runs in \emph{sub-exponential} time --- slow enough that 2048-bit moduli
+are safe against classical attackers. The catch is ``classical.'' Shor's
+algorithm factors in polynomial time on a quantum computer, collapsing the
+security margin. You cite factorization as one of the two classical assumptions
+(with the discrete log) that quantum computing dissolves.
+
+%------------------------------------------------------------------------------
+\subsection{RSA}
+\seethesis{\S2.1 (representative classical public-key scheme under quantum threat).}
+\nutshell{The 1977 public-key cryptosystem (encryption and signatures) whose
+security reduces to integer factorization --- and which Shor's algorithm breaks.}
+
+RSA (Rivest--Shamir--Adleman) was the first practical public-key system. A public
+key is $(N, e)$ with $N = pq$; the private key is the matching exponent $d$.
+Security rests on factoring being hard: knowing $N$ should not reveal $p$ and
+$q$. WireGuard does \emph{not} use RSA --- it uses elliptic-curve crypto --- but
+RSA is the textbook example of a factoring-based scheme and the headline victim
+of Shor in resource estimates (e.g.\ Gidney--Eker\aa, 2019, estimate RSA-2048 in
+hours on $\sim$20 million noisy qubits). It frames the threat your work responds
+to.
+
+%------------------------------------------------------------------------------
+\subsection{The elliptic-curve discrete logarithm problem (ECDLP)}
+\seethesis{\S2.1 and \S2.2 (the hardness behind X25519).}
+\nutshell{Given points $P$ and $Q = kP$ on an elliptic curve, recover the scalar
+$k$ --- the hard problem that makes X25519's small keys secure (classically).}
+
+On an elliptic curve, the group operation is point addition; ``exponentiation''
+becomes scalar multiplication $kP$. The ECDLP is recovering $k$ from $P$ and
+$Q=kP$. Its key property: the best classical attacks (Pollard's rho) cost about
+$\sqrt{n}$ for group order $n$, i.e.\ fully exponential, with \emph{no}
+sub-exponential shortcut like the number field sieve. That is why elliptic-curve
+keys can be far smaller than RSA keys at equal classical security --- 256-bit
+curves versus 3072-bit RSA. But ECDLP, like ordinary DLP and factoring, also
+falls to Shor's algorithm; in fact a 256-bit ECDLP needs \emph{fewer} logical
+qubits than RSA-2048, so elliptic-curve crypto is arguably the more urgent quantum
+target.
+
+%------------------------------------------------------------------------------
+\subsection{Curve25519, X25519, and the 32-byte key}
+\seethesis{\S2.2 (WireGuard primitives), \S5.3 (where ML-KEM joins it in the hybrid).}
+\nutshell{Curve25519 is the elliptic curve; X25519 is the Diffie--Hellman
+function over it; the public key and shared secret are each 32 bytes --- this is
+the classical half of your hybrid.}
+
+\textbf{Curve25519} (Bernstein, 2006) is a Montgomery-form elliptic curve over
+the prime field $\mathbb{F}_p$ with $p = 2^{255}-19$, designed for speed and for
+resistance to implementation pitfalls (it is ``safe'' by construction --- no
+invalid-curve or twist problems if used correctly, and amenable to constant-time
+code). \textbf{X25519} is the Diffie--Hellman function built on it (RFC 7748):
+each side has a 32-byte private scalar (with specific bits ``clamped'') and a
+32-byte public key (the curve point's $u$-coordinate); the shared secret is the
+32-byte $u$-coordinate of the scalar product. Those ubiquitous \textbf{32-byte}
+quantities --- WireGuard public keys, X25519 outputs --- are 256-bit values. In
+your hybrid, the X25519 shared secret is one of the two inputs concatenated
+before the KDF; ML-KEM-768's 32-byte shared secret is the other. X25519 is the
+component a quantum attacker would eventually defeat via Shor; ML-KEM is what
+keeps the session safe if that happens.
+
+\keyq{``Why keep X25519 at all if it's quantum-broken?'' Two reasons: (1) ML-KEM
+is young and lattice assumptions are less battle-tested than ECDLP, so a hybrid
+stays secure if \emph{either} holds; (2) it preserves classical security and
+WireGuard's existing authentication unchanged. Hybrid = belt and braces, which is
+exactly NIST's and industry's recommended migration posture.}
+
+%------------------------------------------------------------------------------
+\subsection{ChaCha20-Poly1305}
+\seethesis{\S2.2 (transport encryption), \S8.3 (throughput is unaffected by your change).}
+\nutshell{WireGuard's authenticated-encryption cipher for the data channel: a
+software-fast stream cipher (ChaCha20) plus a one-time MAC (Poly1305); your work
+does not touch it.}
+
+ChaCha20-Poly1305 (Bernstein; RFC 8439) is an \textbf{AEAD} (Authenticated
+Encryption with Associated Data) construction: ChaCha20 is a 256-bit-key stream
+cipher and Poly1305 is a fast one-time message authenticator; together they give
+confidentiality \emph{and} integrity in one pass. WireGuard chose it over
+AES-GCM because it is fast and \emph{constant-time in pure software}, with no
+dependence on AES hardware acceleration --- which matters on devices like the
+Raspberry Pi. The defense-relevant point: this is symmetric crypto, so it is
+\emph{not} broken by Shor (only mildly weakened by Grover), and your thesis
+leaves the entire transport path on ChaCha20-Poly1305 untouched. That is why your
+measured throughput is statistically unchanged --- only the one-time handshake
+cost grows.
+
+%------------------------------------------------------------------------------
+\subsection{AES-GCM}
+\seethesis{Contrast to ChaCha20-Poly1305 (\S2.2); explains a WireGuard design choice.}
+\nutshell{The other mainstream AEAD: AES in counter mode plus the GHASH
+authenticator --- excellent with hardware AES, which is why WireGuard chose
+ChaCha20-Poly1305 instead for hardware-agnostic speed.}
+
+AES-GCM (NIST SP 800-38D) combines AES in counter mode with the GHASH universal
+hash for authentication. It is the dominant AEAD in TLS and is extremely fast
+\emph{where AES-NI hardware instructions exist}. Its weaknesses in software are
+the flip side: without hardware acceleration, constant-time AES is harder and
+slower, and GCM is unforgiving of nonce reuse. This contrast explains WireGuard's
+preference for ChaCha20-Poly1305 and is worth knowing because your Raspberry Pi
+results lean on the ``no AES hardware needed'' argument. Like all symmetric
+ciphers it is quantum-resistant with adequate key length.
+
+%------------------------------------------------------------------------------
+\subsection{BLAKE2s}
+\seethesis{\S2.2 (hashing/MAC), \S5.4 (the KDF that mixes your hybrid secret).}
+\nutshell{WireGuard's hash function --- fast, modern, and used for hashing, the
+keyed MAC, and the KDF; it is what stirs your concatenated secret into the chain.}
+
+BLAKE2s is a cryptographic hash (a member of the BLAKE2 family derived from the
+SHA-3 finalist BLAKE) optimized for 8--32-bit platforms, producing up to a
+256-bit digest. WireGuard uses it pervasively: as the transcript hash that binds
+the handshake, as a \emph{keyed} MAC (the \texttt{mac1}/\texttt{mac2} cookie
+fields), and as the compression function inside its HMAC-based KDF. For your
+thesis it is the hash underneath the key derivation in \S5.4: when you
+concatenate the X25519 and ML-KEM secrets, it is a BLAKE2s-based HMAC chain that
+absorbs them into the chaining key. Being a hash, it is quantum-resistant
+(Grover only halves preimage security, which 256-bit output absorbs).
+
+%------------------------------------------------------------------------------
+\subsection{HMAC and HKDF key derivation}
+\seethesis{\S2.5 (concatenate-then-KDF) and \S5.4 (key derivation details).}
+\nutshell{HMAC is a hash-based message authentication code; HKDF is the
+``extract-then-expand'' key-derivation function built from it --- the machinery
+that turns your two raw shared secrets into uniform session keys.}
+
+\textbf{HMAC} (RFC 2104) builds a MAC from any hash $H$ via
+$\mathrm{HMAC}(k,m) = H\big((k\oplus opad)\mathbin\| H((k\oplus ipad)\mathbin\| m)\big)$.
+\textbf{HKDF} (Krawczyk; RFC 5869) is a KDF with two stages: \emph{extract}
+condenses raw, possibly-non-uniform input keying material into a uniform
+pseudorandom key, then \emph{expand} stretches that into as many output keys as
+needed. WireGuard uses an HKDF-style HMAC-BLAKE2s chain throughout its handshake.
+
+This is the heart of why ``concatenate-then-KDF'' is sound. You set the KDF input
+keying material to the concatenation $ss_{\text{X25519}} \,\|\, ss_{\text{ML-KEM}}$.
+A standard KDF security property (and the NIST SP 800-56C Rev.\,2 guidance for
+combining secrets) guarantees the output is pseudorandom as long as \emph{at
+least one} input secret is unknown to the attacker. That single property is the
+formal backbone of your hybrid's ``secure if either primitive holds'' claim ---
+no new cryptography invented, just a correct application of an established
+combiner.
+
+\keyq{``Why concatenate rather than XOR or nest the secrets?'' Concatenation
+feeding a KDF is the construction NIST SP 800-56C analyses and the TLS hybrid
+uses; it provably preserves security if either secret is strong. XOR can be
+fragile if one secret is adversarially controlled; concatenation-then-KDF is the
+conservative, standardized choice.}
+
+%==============================================================================
+\section{The Noise Protocol Framework and the WireGuard Handshake}
+%==============================================================================
+
+%------------------------------------------------------------------------------
+\subsection{The Noise Protocol Framework}
+\seethesis{\S2.3 (Noise) and \S5.3 (where you insert ML-KEM into the pattern).}
+\nutshell{A toolkit (Trevor Perrin) for building handshake protocols out of a
+fixed alphabet of Diffie--Hellman and mixing operations; WireGuard is one
+specific Noise pattern.}
+
+Noise is not a protocol but a \emph{framework} for constructing two-party
+handshakes. A handshake is written as a short \emph{pattern} of tokens --- e.g.\
+\texttt{e} (send an ephemeral key), \texttt{s} (send a static key), \texttt{ee},
+\texttt{es}, \texttt{se}, \texttt{ss} (perform the corresponding
+Diffie--Hellman) --- and the framework prescribes how each operation mixes into
+two running values: a \emph{chaining key} (feeds the KDF) and a \emph{handshake
+hash} (binds the transcript for authentication). The elegance is that security
+properties (forward secrecy, identity hiding, authentication) follow from the
+pattern. The catch for post-quantum work: Noise's vocabulary assumes
+\emph{Diffie--Hellman}, and a KEM is not a DH (see \S4.1). So inserting ML-KEM
+means stepping slightly outside vanilla Noise --- exactly the careful integration
+your implementation performs and documents.
+
+%------------------------------------------------------------------------------
+\subsection{The Noise IK pattern (and WireGuard's IKpsk2)}
+\seethesis{\S2.3, \S5.3 (hybrid handshake), \S5.2 / \S2.2.1 (the PSK slot = the ``psk2'').}
+\nutshell{IK is the specific Noise handshake WireGuard uses: the initiator knows
+the responder's static key in advance (K) and transmits its own static key,
+encrypted, during the handshake (I).}
+
+In Noise's two-letter naming, the first letter describes the \emph{initiator's}
+static key and the second the \emph{responder's}:
+\begin{itemize}
+  \item \textbf{I} --- the initiator's static key is transmitted (\emph{immediately},
+  encrypted) to the responder during the handshake.
+  \item \textbf{K} --- the responder's static key is \emph{known} to the
+  initiator beforehand (out of band; in WireGuard, from the peer's configured
+  public key).
+\end{itemize}
+This fits a VPN perfectly: a client already has the server's public key in its
+config (K), and proves its own identity in the first message (I). WireGuard
+extends IK with an optional pre-shared key mixed at the second position, making it
+effectively \textbf{IKpsk2}; that ``psk2'' slot is precisely the \textbf{PSK-slot
+baseline} you compare against (Option~2). Your \textbf{hybrid} (Option~1) instead
+threads ML-KEM into the existing two-message flow: the initiator carries the
+ML-KEM encapsulation key, the responder returns the ciphertext, and the resulting
+KEM shared secret is mixed into the same chaining key alongside the X25519 DH
+results --- no third message added.
+
+\keyq{``Did you add a round trip?'' No. ML-KEM's encapsulation key rides in the
+existing initiation and its ciphertext rides in the existing response, so the
+handshake stays 1-RTT. Only the message \emph{sizes} and the per-handshake
+\emph{compute} grow; the message \emph{count} does not.}
+
+%------------------------------------------------------------------------------
+\subsection{Unknown-Key-Share (UKS) attacks}
+\seethesis{\S7.4 (authentication and remaining limitations).}
+\nutshell{An attack where two honest parties end up sharing a key but disagree
+about \emph{who} they are talking to; prevented by binding both identities into
+the transcript --- which WireGuard already does.}
+
+In a UKS attack the adversary does not learn the key, but it tricks Alice into
+believing she shares a key with the attacker while she actually shares it with
+Bob (or vice versa) --- a confusion of identities rather than of key material.
+The standard defense is to fold both parties' identities (their static public
+keys) into the authenticated handshake transcript, so the derived key is
+cryptographically committed to ``who talked to whom.'' WireGuard does this: static
+public keys are mixed into the handshake hash. You raise UKS in the security
+analysis to show you understand the authentication model and that your change
+preserves it --- your modification adds confidentiality material (the KEM secret)
+without weakening the identity binding. It also sets up the honest limitation:
+\emph{authentication} still rests on X25519 static keys, so it is not itself
+post-quantum (addressed next, and in \S7.4/\S9.3).
+
+%==============================================================================
+\section{The Quantum Threat}
+%==============================================================================
+
+%------------------------------------------------------------------------------
+\subsection{Shor's algorithm}
+\seethesis{\S2.1 (the quantum threat) --- the reason the thesis exists.}
+\nutshell{The 1994 quantum algorithm that solves factoring and discrete logs
+(including elliptic-curve) in polynomial time, breaking RSA, DH, and X25519.}
+
+Peter Shor's algorithm (1994) is the single result that endangers today's
+public-key crypto. Its engine is quantum \emph{period-finding}: factoring $N$
+reduces to finding the period of the function $x \mapsto a^x \bmod N$, and the
+\textbf{Quantum Fourier Transform} extracts that period efficiently --- turning a
+sub-exponential classical problem into a polynomial-time quantum one. The same
+period-finding machinery solves the discrete logarithm in any finite abelian
+group, which sweeps in finite-field DH \emph{and} the elliptic-curve discrete log
+behind X25519. So a sufficiently large, fault-tolerant quantum computer would
+break WireGuard's key exchange outright.
+
+The essential caveat: ``sufficiently large and fault-tolerant.'' Current devices
+are noisy and far too small; published estimates put RSA-2048 at millions of
+physical qubits with error correction. No such machine exists today --- which is
+exactly why the threat model is not ``tomorrow'' but \emph{harvest-now,
+decrypt-later} (\S4.3).
+
+\keyq{``If no quantum computer can do this yet, why migrate now?'' Because
+encrypted traffic captured today can be stored and decrypted later once the
+machine exists. Data with multi-year confidentiality needs is already at risk;
+the migration must precede the computer, not follow it. NIST/NSA timelines target
+the early 2030s.}
+
+%------------------------------------------------------------------------------
+\subsection{What Shor breaks --- and what it does not (Grover)}
+\seethesis{\S2.1; justifies why only the handshake, not the transport, needs PQ.}
+\nutshell{Shor demolishes public-key (asymmetric) crypto; symmetric crypto and
+hashes are only mildly dented by Grover's algorithm, so doubling key sizes
+suffices there.}
+
+This split is the load-bearing argument for your whole scope:
+\begin{itemize}
+  \item \textbf{Asymmetric / public-key} (RSA, DH, ECDH/X25519, ECDSA) ---
+  \emph{broken} by Shor. These need replacing. WireGuard's key exchange lives
+  here.
+  \item \textbf{Symmetric \& hashes} (ChaCha20, AES, BLAKE2s, SHA-2) --- only
+  \emph{weakened} by Grover's algorithm, which gives at most a quadratic speedup
+  for brute-force search. Effective security halves: a 256-bit cipher retains
+  $\sim$128-bit post-quantum security, which is ample.
+\end{itemize}
+Therefore the only quantum-vulnerable part of WireGuard is the \textbf{handshake}
+(the X25519 key agreement); the ChaCha20-Poly1305 transport is fine as-is. This
+is precisely why your contribution targets the handshake \emph{only} and leaves
+the data plane untouched --- a scoping decision you can now justify from first
+principles.
+
+%------------------------------------------------------------------------------
+\subsection{Harvest-now, decrypt-later (HNDL)}
+\seethesis{\S1 (introduction / motivation) and \S2.1.}
+\nutshell{The real, present-day threat: an adversary records encrypted traffic
+now and decrypts it once a quantum computer arrives --- so long-lived secrets
+need protection before the machine exists.}
+
+HNDL (also ``store-now-decrypt-later'') reframes the quantum threat from a future
+event into a present obligation. An adversary with storage and patience captures
+today's encrypted sessions and simply waits; when a cryptographically-relevant
+quantum computer arrives, the recorded X25519 handshakes are broken and the
+session keys --- hence all that captured traffic --- are recovered. Anything that
+must stay confidential for years (state secrets, health and financial records,
+long-term credentials) is therefore \emph{already} exposed. This is the urgency
+argument and it is specifically a \emph{confidentiality} threat, which is why a
+hybrid that protects the key exchange is valuable even though it leaves classical
+\emph{authentication} in place: forging authentication requires a quantum
+computer at handshake time and cannot be done retroactively against recorded
+traffic.
+
+%==============================================================================
+\section{Post-Quantum Cryptography: Standards and Constructions}
+%==============================================================================
+The core of your contribution's ``new half.'' Be fluent here above all.
+
+%------------------------------------------------------------------------------
+\subsection{NIST}
+\seethesis{\S2.4 (ML-KEM is a NIST/FIPS standard).}
+\nutshell{The U.S.\ National Institute of Standards and Technology --- the body
+that ran the post-quantum competition and publishes the FIPS standards your work
+implements.}
+
+NIST is a U.S.\ federal agency that, among much else, standardizes cryptography
+through its Federal Information Processing Standards (FIPS) publications --- AES
+(FIPS 197) and SHA-3 (FIPS 202) came through NIST processes, and so did ML-KEM
+(FIPS 203). Its imprimatur is why ML-KEM, rather than raw Kyber, is the thing to
+deploy: it is the vetted, frozen, interoperable specification. When the committee
+hears ``FIPS 203,'' they hear ``the standard,'' and your choice to target it
+rather than a research draft signals engineering maturity.
+
+%------------------------------------------------------------------------------
+\subsection{The NIST PQC Standardization Project}
+\seethesis{\S2.4 and \S3 (related work situates competing schemes).}
+\nutshell{The multi-year open competition (2016--) that evaluated post-quantum
+algorithms and selected the first standards in 2022, published as FIPS in 2024.}
+
+NIST launched the Post-Quantum Cryptography Standardization Project in 2016,
+soliciting public submissions for quantum-resistant key-establishment and
+signature schemes. The timeline you should be able to sketch:
+\begin{itemize}
+  \item \textbf{2017} --- 69 candidates accepted into Round 1.
+  \item \textbf{2019 / 2020} --- narrowed to Round 2 (26) then Round 3 (7
+  finalists + 8 alternates).
+  \item \textbf{July 2022} --- first selections: \textbf{CRYSTALS-Kyber} for
+  key encapsulation, plus CRYSTALS-Dilithium, Falcon, and SPHINCS+ for
+  signatures.
+  \item \textbf{August 2024} --- standards published: \textbf{FIPS 203}
+  (ML-KEM, from Kyber), FIPS 204 (ML-DSA, from Dilithium), FIPS 205 (SLH-DSA,
+  from SPHINCS+).
+  \item A separate ``Round 4'' continued evaluating additional KEMs for
+  diversity (BIKE, Classic McEliece, HQC; SIKE was eliminated after being
+  broken), with HQC selected in 2025.
+\end{itemize}
+The process matters rhetorically: ML-KEM is not a lab curiosity but the survivor
+of years of public cryptanalysis --- which is the assurance your hybrid leans on
+for its post-quantum half.
+
+%------------------------------------------------------------------------------
+\subsection{The Module Learning With Errors (MLWE) problem}
+\seethesis{\S2.4 (the hardness assumption under ML-KEM).}
+\nutshell{The lattice problem ML-KEM's security rests on: distinguishing
+noisy linear equations over a module from random --- believed hard for classical
+\emph{and} quantum computers.}
+
+Learning With Errors (LWE) asks you to recover a secret $\mathbf{s}$ from many
+samples $(\mathbf{a}_i, \langle \mathbf{a}_i, \mathbf{s}\rangle + e_i)$ where each
+$e_i$ is small random ``noise'' --- equivalently, to distinguish those noisy
+inner products from uniform randomness. The noise is what makes Gaussian
+elimination fail and the problem hard; its hardness connects to worst-case
+lattice problems. Plain LWE has large keys, so practical schemes use structure:
+\textbf{Ring-LWE} works over a polynomial ring (compact but more structure
+assumed), and \textbf{Module-LWE} interpolates between the two by working over a
+rank-$k$ \emph{module} of that ring. Kyber/ML-KEM uses MLWE over
+$R_q = \mathbb{Z}_q[X]/(X^{256}+1)$ with module rank $k$ tied to the security
+level. The selling point: MLWE lets you tune security by changing $k$ while
+reusing the same ring arithmetic, and no efficient quantum algorithm is known
+against it --- unlike the abelian-group problems Shor demolishes.
+
+%------------------------------------------------------------------------------
+\subsection{CRYSTALS-Kyber, ML-KEM, and Kyber-768}
+\seethesis{\S2.4 and \S5.3 (the post-quantum half of the hybrid).}
+\nutshell{Kyber is the MLWE-based KEM that won the NIST competition; ML-KEM is
+its standardized form (FIPS 203); ML-KEM-768 / ``Kyber-768'' is the security
+level you use.}
+
+\textbf{CRYSTALS-Kyber} (Cryptographic Suite for Algebraic Lattices) is a
+key-encapsulation mechanism built on MLWE. \textbf{ML-KEM} is its NIST-blessed
+final form; the names are often used interchangeably, but ``ML-KEM'' denotes the
+exact FIPS-203 algorithm (with a few tweaks from the competition Kyber). As a KEM
+it exposes three operations:
+\begin{itemize}
+  \item \texttt{KeyGen} $\to$ (encapsulation key / public, decapsulation key /
+  secret);
+  \item \texttt{Encaps}(encapsulation key) $\to$ (ciphertext, shared secret) ---
+  run by the party that has the peer's public key;
+  \item \texttt{Decaps}(decapsulation key, ciphertext) $\to$ shared secret.
+\end{itemize}
+\textbf{ML-KEM-768} (``Kyber-768'') is the middle parameter set: module rank
+$k=3$, targeting NIST security \textbf{category~3} (roughly AES-192). Its sizes
+--- which you should have at your fingertips because they drive the MTU analysis
+--- are an encapsulation key of \textbf{1184 bytes}, a ciphertext of
+\textbf{1088 bytes}, and a \textbf{32-byte} shared secret. You chose the 768
+level as the balanced, widely-recommended default (it is the level in TLS's
+\texttt{X25519MLKEM768}), strong enough for category~3 without the larger
+messages of ML-KEM-1024.
+
+\keyq{``Why ML-KEM-768 and not 512 or 1024?'' 768 is NIST category~3 and the
+de-facto industry default (it is the level chosen for the deployed TLS hybrid).
+512 trades security margin for size; 1024 buys category~5 at noticeably larger
+messages. 768 is the balanced choice and keeps your handshake within one Ethernet
+datagram.}
+
+%------------------------------------------------------------------------------
+\subsection{FIPS 203}
+\seethesis{\S2.4 (the standard your implementation targets).}
+\nutshell{The August 2024 NIST standard that defines ML-KEM precisely --- the
+specification your RustCrypto \texttt{ml-kem} dependency implements.}
+
+FIPS 203, ``Module-Lattice-Based Key-Encapsulation Mechanism Standard,''
+finalized on 13 August 2024, is the authoritative definition of ML-KEM: the
+algorithms, the three parameter sets (512/768/1024), the exact byte encodings,
+and the internal hashing. Targeting a published FIPS --- rather than a moving
+research target --- is what makes your implementation interoperable and your
+choice defensible. The crate you depend on (\texttt{ml-kem}, RustCrypto) tracks
+this standard, which is why correctness can be checked against NIST's official
+test vectors (\S6 below).
+
+%------------------------------------------------------------------------------
+\subsection{The Number-Theoretic Transform (NTT)}
+\seethesis{\S2.4; explains why ML-KEM is fast and underlies your latency numbers.}
+\nutshell{An FFT over a finite field that turns slow polynomial multiplication
+into cheap coefficient-wise products --- the reason Kyber is fast, and the reason
+its parameters $q=3329$, $n=256$ look the way they do.}
+
+Kyber's arithmetic lives in $R_q = \mathbb{Z}_q[X]/(X^{256}+1)$, and multiplying
+two degree-255 polynomials naively is $O(n^2)$. The NTT is the finite-field
+analogue of the FFT: it evaluates a polynomial at the powers of a root of unity
+so that multiplication becomes \emph{pointwise}, giving $O(n\log n)$. Kyber's
+parameters are chosen \emph{precisely} to make this work: $q = 3329$ is prime
+with $q \equiv 1 \pmod{256}$, so a length-256 transform exists. (A subtlety worth
+knowing: because $q \not\equiv 1 \pmod{512}$, $X^{256}+1$ does not split into
+linear factors, so Kyber uses an ``incomplete'' NTT down to 128 quadratic factors
+with base-case products --- but the speed win stands.) Public keys even travel in
+NTT domain. This is the mechanistic reason your ML-KEM operations are fast (tens
+of microseconds on the M4); your benchmark chapter measures the practical payoff.
+
+%------------------------------------------------------------------------------
+\subsection{IND-CPA and IND-CCA2 security}
+\seethesis{\S2.4 (KEM security) and \S7.2 (hybrid security argument).}
+\nutshell{The two standard ``indistinguishability'' security definitions; ML-KEM
+must meet the stronger one (IND-CCA2), because a real attacker can submit chosen
+ciphertexts.}
+
+These are game-based security \emph{definitions}, framed as an attacker trying to
+distinguish encryptions:
+\begin{itemize}
+  \item \textbf{IND-CPA} (chosen-plaintext): the attacker may encrypt plaintexts
+  of its choosing but cannot ask for decryptions. The minimal sensible bar.
+  \item \textbf{IND-CCA2} (adaptive chosen-ciphertext): the attacker additionally
+  has a \emph{decryption oracle} and may use it adaptively (except on the
+  challenge). This models the real world, where an adversary can send crafted
+  ciphertexts to a peer and observe behavior.
+\end{itemize}
+A KEM used in a live protocol must be \textbf{IND-CCA2}, because a network
+attacker can inject ciphertexts. ML-KEM's underlying public-key scheme (K-PKE) is
+only IND-CPA; the upgrade to IND-CCA2 is done by the Fujisaki--Okamoto transform
+(next). In your security chapter, the KEM's IND-CCA2 guarantee is one of the two
+pillars; the KDF combiner then carries that strength into the hybrid session key.
+
+%------------------------------------------------------------------------------
+\subsection{The Fujisaki--Okamoto (FO) transformation}
+\seethesis{\S2.4 (how ML-KEM achieves CCA security).}
+\nutshell{The generic recipe that upgrades a merely IND-CPA encryption scheme
+into an IND-CCA2 KEM by re-encrypting on decapsulation and rejecting anything
+that doesn't match --- this is how ML-KEM gets its strong security.}
+
+The FO transform turns a weak (IND-CPA) public-key scheme into a strong
+(IND-CCA2) KEM. The idea: the shared secret is derived deterministically from the
+message, so on \texttt{Decaps} the receiver \emph{re-encrypts} the recovered
+message and checks it reproduces the received ciphertext exactly. A mismatch
+means tampering, and the KEM refuses to output the real key. ML-KEM uses the
+modern variant with \textbf{implicit rejection}: instead of returning a visible
+error (which can leak information), it returns a \emph{pseudorandom} key derived
+from a secret seed, so a chosen-ciphertext attacker learns nothing from
+malformed queries. This re-encryption check is also why decapsulation costs a bit
+more than encapsulation --- relevant when you read your per-operation benchmarks.
+
+\keyq{``Where does CCA security come from in ML-KEM?'' From the FO transform
+applied to the IND-CPA scheme K-PKE, with implicit rejection. The decapsulator
+re-encrypts and compares; on failure it returns a pseudorandom key, leaking
+nothing.}
+
+%------------------------------------------------------------------------------
+\subsection{The road not taken: Classic McEliece and Saber}
+\seethesis{\S2.4 / \S3 (context for why ML-KEM, not an alternative).}
+\nutshell{Two other NIST KEM candidates --- code-based McEliece (ultra-conservative
+but enormous keys) and lattice-based Saber (close runner-up to Kyber) --- useful
+as foils for ``why ML-KEM.''}
+
+\textbf{Classic McEliece} is a \emph{code-based} KEM (security from
+error-correcting codes, an assumption studied since 1978 and untouched by
+quantum attacks). Its virtue is conservatism; its problem is a public key of
+hundreds of kilobytes to a megabyte --- impossible to carry in a 1500-byte
+WireGuard handshake. \textbf{Saber} is a lattice KEM very close in spirit to
+Kyber but based on Module Learning-With-\emph{Rounding} with power-of-two moduli
+(so it avoids the NTT); it was a Round-3 finalist that NIST did not select. Both
+are worth a sentence because they show you understand the design space: McEliece's
+giant keys make it a non-starter for an MTU-bound handshake, and Saber lost to
+Kyber on NIST's balance of security, performance, and analysis --- so ML-KEM-768
+is the natural, standards-aligned, size-feasible choice for WireGuard.
+
+%==============================================================================
+\section{Assurance: Verification and Testing}
+%==============================================================================
+How anyone trusts that the cryptography is correct --- the standard's, the
+library's, and yours.
+
+%------------------------------------------------------------------------------
+\subsection{EasyCrypt and formal verification}
+\seethesis{\S2.4 / \S7 (why ML-KEM as a primitive can be trusted).}
+\nutshell{A proof assistant for machine-checking cryptographic security proofs;
+ML-KEM has been formally verified with it, which is part of why the primitive is
+trustworthy and not your burden to re-prove.}
+
+EasyCrypt is an interactive theorem prover specialized for the \emph{game-based}
+proofs cryptographers write by hand --- it mechanically checks the sequence of
+``game hops'' that bounds an attacker's advantage, removing the human errors that
+have historically crept into paper proofs. It matters to your defense as a
+boundary marker: the security of ML-KEM \emph{as a primitive} has been the subject
+of formal-verification efforts (e.g.\ machine-checked Kyber/ML-KEM
+implementations in the Jasmin/Formosa-crypto line of work using EasyCrypt), so you
+inherit a strongly-vetted building block. Your contribution is the \emph{correct
+integration} of that block into WireGuard, not a re-proof of the lattice
+mathematics --- a clean scoping statement if asked ``did you prove ML-KEM
+secure?''
+
+%------------------------------------------------------------------------------
+\subsection{NIST Known Answer Tests (KATs)}
+\seethesis{\S6.5 (test harness) --- how you verify your integration is correct.}
+\nutshell{Deterministic test vectors --- fixed seed in, exact expected bytes out
+--- that confirm a crypto implementation matches the standard.}
+
+A Known Answer Test pins down a deterministic computation: given a fixed seed (so
+the otherwise-random key generation and encapsulation become reproducible), the
+implementation must produce exactly the published keys, ciphertext, and shared
+secret. NIST ships KAT files with FIPS 203 for precisely this. Their value is
+that they catch byte-level mistakes --- wrong encoding, endianness, parameter
+mix-ups --- that ordinary ``it ran'' testing misses. In your test harness, KAT
+agreement (via the \texttt{ml-kem} crate's conformance) gives confidence that the
+ML-KEM operations you wired into the handshake are the \emph{real} ML-KEM, and
+your own integration tests then confirm two patched peers actually complete a
+hybrid handshake and derive matching keys.
+
+%------------------------------------------------------------------------------
+\subsection{Historical security exploits in cryptographic code}
+\seethesis{\S6 (rationale for a Rust implementation and a minimal, gated diff).}
+\nutshell{The catalogue of real-world cryptographic failures --- memory bugs and
+logic slips --- that motivates implementing in memory-safe Rust and keeping the
+change small and optional.}
+
+A short rogues' gallery you can cite to justify engineering choices:
+\begin{itemize}
+  \item \textbf{Heartbleed} (OpenSSL, 2014) --- a missing bounds check let
+  attackers read adjacent memory, leaking private keys. A \emph{memory-safety}
+  failure in C.
+  \item \textbf{Apple ``goto fail''} (2014) --- a duplicated \texttt{goto}
+  skipped TLS signature verification entirely. A \emph{logic} failure.
+  \item \textbf{Debian OpenSSL PRNG} (2008) --- a well-meaning edit gutted
+  entropy, making keys guessable. A \emph{review/process} failure.
+\end{itemize}
+The lessons map directly onto your decisions: BoringTun is \textbf{Rust}, whose
+memory safety eliminates the Heartbleed class by construction; you keep the
+post-quantum change \textbf{small, auditable, and behind a \texttt{pq} feature
+flag} so the default build is byte-for-byte the upstream code (no risk to existing
+users); and you lean on \textbf{standardized primitives with KATs and formal
+verification} rather than hand-rolling crypto, which is where the logic failures
+live. This is your answer to ``why should we trust your code?''
+
+%==============================================================================
+\section{Implementation Concepts}
+%==============================================================================
+
+%------------------------------------------------------------------------------
+\subsection{C FFI (Foreign Function Interface)}
+\seethesis{\S6.1--\S6.2 (BoringTun architecture and technology stack).}
+\nutshell{The mechanism by which Rust exposes a C-callable API; BoringTun ships
+one, and your \texttt{pq} flag is designed to leave that ABI untouched in the
+default build.}
+
+An FFI lets code in one language call code compiled from another; the C ABI is
+the lingua franca. Rust exposes C-callable functions with \texttt{extern "C"} and
+\texttt{\#[no\_mangle]}, and such boundaries are \texttt{unsafe} because the
+compiler cannot verify the foreign side's assumptions (lifetimes, null pointers,
+thread safety). BoringTun is consumed as a library through exactly such a C FFI
+(it is embedded into other applications, not only run as a daemon). Why this
+matters to you: keeping the post-quantum work behind a compile-time feature means
+the \emph{default} build presents the same FFI surface and the same wire format
+as upstream --- existing integrators are unaffected, and only an explicitly
+PQ-enabled build changes behavior. That is a deployment-safety argument the
+committee will appreciate.
+
+%------------------------------------------------------------------------------
+\subsection{Rust \texttt{no\_std}}
+\seethesis{\S6.2 (technology stack); relevant to constrained-device deployability.}
+\nutshell{A Rust mode that drops the OS-dependent standard library and uses only
+the core language, enabling crypto to run on embedded targets --- which is why a
+KEM library can reach routers and small devices.}
+
+By default Rust programs link \texttt{std}, which assumes an operating system
+(heap allocator, files, threads). A crate marked \texttt{\#![no\_std]} uses only
+\texttt{core} (the allocation-free language essentials), optionally adding
+\texttt{alloc} for heap types --- letting it run on microcontrollers and inside
+kernels. RustCrypto primitives, including the \texttt{ml-kem} family, are written
+to be \texttt{no\_std}-capable. The relevance to your thesis is forward-looking:
+although BoringTun itself targets hosted platforms (it uses \texttt{std}), the
+fact that the post-quantum primitive is \texttt{no\_std}-friendly means the
+approach is portable down to constrained devices --- consistent with your
+Raspberry Pi evaluation and with WireGuard's ambition to run everywhere.
+
+%==============================================================================
+\section{Evaluation Methodology}
+%==============================================================================
+How your performance claims are made trustworthy rather than anecdotal.
+
+%------------------------------------------------------------------------------
+\subsection{Criterion benchmarking}
+\seethesis{\S6.5 (test/bench harness) and all of \S8 (results).}
+\nutshell{Rust's statistical benchmarking library --- it warms up, samples many
+iterations, detects outliers, and reports a mean with a confidence interval
+rather than a single noisy number.}
+
+Criterion is the de-facto statistics-driven benchmarking framework for Rust. Its
+methodology is the point: it runs a \emph{warm-up} phase (to settle caches and
+CPU frequency), then collects many timed samples, fits and reports a \emph{mean
+estimate with a confidence interval}, detects \emph{outliers}, and can compare
+against a saved baseline to flag regressions. This is what lifts your numbers from
+``I ran it once and got 247\,$\mu$s'' to a defensible statistical statement. You
+extended BoringTun's existing Criterion-based tests to measure the handshake under
+the three configurations (vanilla, PSK-slot, hybrid) and the individual ML-KEM
+operations, on both the Apple M4 and the Raspberry Pi~5.
+
+%------------------------------------------------------------------------------
+\subsection{Confidence intervals}
+\seethesis{\S8.1 (latency results are reported as mean $\pm$ 95\% CI).}
+\nutshell{A range that quantifies measurement uncertainty: a 95\% CI means the
+procedure captures the true mean 95\% of the time --- so non-overlapping
+intervals signal a real difference, not noise.}
+
+A confidence interval expresses how sure you are about an estimate. A
+\textbf{95\% CI} for the mean is constructed so that, across repeated
+experiments, 95\% of such intervals would contain the true mean. Criterion derives
+these by \emph{bootstrap resampling} the collected timings (no assumption of a
+normal distribution). For your defense the practical reading is comparative: when
+the hybrid's latency interval sits clearly above vanilla's and the two do not
+overlap, the $\sim$64\% increase on the M4 (and $\sim$25\% on the Pi) is a
+\emph{statistically real} effect, not measurement jitter --- whereas the
+near-identical vanilla and PSK-slot intervals overlap, correctly showing the PSK
+approach adds no asymmetric-handshake cost. Reporting the interval, not just the
+mean, is what makes the comparison honest.
+
+\keyq{``Are your performance differences significant?'' Yes --- they are reported
+as means with 95\% bootstrap confidence intervals from Criterion over many
+samples; the hybrid's interval is disjoint from vanilla's, so the overhead is a
+real effect, while vanilla vs.\ PSK-slot overlap, correctly indicating no
+handshake-asymmetric cost.}
+
+\vspace{1.2em}
+\hrule height 1pt
+\vspace{0.6em}
+\noindent\textbf{\color{deepcyan}Closing orientation.} If you remember nothing
+else: \emph{Shor breaks the public-key handshake but not the symmetric transport};
+\emph{a KEM is not a Diffie--Hellman}, so ML-KEM is woven into Noise IK as
+encapsulation-key-out / ciphertext-back rather than a DH exchange; \emph{the two
+secrets are concatenated and run through the BLAKE2s KDF}, which is secure if
+\emph{either} holds; and \emph{the cost is a bigger, slower handshake but an
+unchanged data plane}, measured honestly with Criterion confidence intervals.
+Everything in this companion is a more detailed footnote to those four facts.
+
+\end{document}
