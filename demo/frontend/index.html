@@ -76,6 +76,17 @@
       <div id="transfer-result" class="transfer-result"></div>
     </section>
 
+    <!-- 4. Live handshake log ------------------------------------------------->
+    <section class="panel logstrip">
+      <div class="panel-head">
+        <h2>Live handshake log <span id="log-variant" class="muted"></span></h2>
+        <a id="receiver-link" class="reclink" href="#" target="_blank" rel="noopener">
+          Open receiver view ↗
+        </a>
+      </div>
+      <div id="log-feed" class="log-feed" aria-live="polite"></div>
+    </section>
+
     <footer class="foot muted">
       Real boringtun handshakes (vanilla / PSK / PQ-hybrid) · sizes captured live
       with tcpdump · payload round-tripped &amp; SHA-256-verified on the remote host.

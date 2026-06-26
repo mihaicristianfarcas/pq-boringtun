@@ -81,6 +81,9 @@ class Variant:
             "pq_forward_secrecy": self.pq_forward_secrecy,
             "note": self.note,
             "thesis_us": self.thesis_us,
+            # tunnel IP of the receiver — the "Open receiver view" link points here
+            # so the arrivals page itself loads *through* this tunnel.
+            "peer_ip": self.peer_ip,
         }
 
 

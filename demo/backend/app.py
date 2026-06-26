@@ -26,6 +26,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from config import VARIANTS, Settings, Variant
+from logfeed import read_events
 from orchestrator import Orchestrator
 from transfer import send_payload
 
@@ -51,12 +52,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {
             "mode": "local" if settings.local else "vps",
             "vps_host": settings.vps_host,
+            "receiver_port": settings.receiver_port,
             "variants": [v.as_public_dict() for v in VARIANTS.values()],
         }
 
     @app.get("/api/status")
     def status() -> dict:
         return orch.status()
+
+    @app.get("/api/logs/{variant}")
+    def logs(variant: str, after: int = 0) -> dict:
+        """New handshake-log events for the live strip, since cursor ``after``."""
+        v = _variant_or_404(variant)
+        events, cursor = read_events(settings.workdir, v.key, after)
+        return {"variant": v.key, "events": events, "cursor": cursor}
 
     @app.post("/api/connect/{variant}")
     def connect(variant: str) -> dict:

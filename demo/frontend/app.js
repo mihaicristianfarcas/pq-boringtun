@@ -6,6 +6,8 @@ const MAX_SIZE = 1332;
 const state = {
   variants: {},     // key -> public dict
   active: null,     // active variant key
+  receiverPort: 8765,
+  logCursor: null,  // event count already shown; null = re-prime (skip history)
 };
 
 const $ = (id) => document.getElementById(id);
@@ -24,12 +26,16 @@ async function jsonFetch(url, opts) {
 async function init() {
   const data = await jsonFetch("/api/variants");
   for (const v of data.variants) state.variants[v.key] = v;
+  state.receiverPort = data.receiver_port || state.receiverPort;
 
   $("mode").textContent =
     data.mode === "vps" ? `VPS · ${data.vps_host || "?"}` : "LOCAL (loopback)";
 
   buildTabs(data.variants);
   selectVariant(data.variants[0].key);
+
+  // tail the active tunnel's real handshake log into the bottom strip
+  setInterval(pollLogs, 1000);
 
   $("connect").addEventListener("click", onConnect);
   $("send").addEventListener("click", onSend);
@@ -76,6 +82,56 @@ function selectVariant(key) {
   $("verdict-note").textContent = v.note;
 
   $("transfer-result").innerHTML = "";
+
+  // Reset the live log for the newly-selected tunnel and re-aim the receiver
+  // link at this tunnel's IP (so the arrivals page loads *through* the tunnel).
+  state.logCursor = null;             // re-prime: skip history, show only new
+  const feed = $("log-feed");
+  feed.textContent = "";
+  addLogPlaceholder(feed, `watching ${v.label} — press Connect to see a handshake`);
+  $("log-variant").textContent = `· ${v.label} (${v.peer_ip})`;
+  $("receiver-link").href = `http://${v.peer_ip}:${state.receiverPort}/`;
+  pollLogs();                         // prime the cursor now, not on the next tick
+}
+
+// --- live handshake log -----------------------------------------------------
+async function pollLogs() {
+  const key = state.active;
+  if (!key) return;
+  try {
+    const after = state.logCursor == null ? 0 : state.logCursor;
+    const r = await fetch(`/api/logs/${key}?after=${after}`, { cache: "no-store" });
+    if (!r.ok) return;
+    const data = await r.json();
+    if (data.variant !== state.active) return;   // raced a variant switch
+    if (state.logCursor == null) {
+      state.logCursor = data.cursor;             // prime: adopt end, skip history
+      return;
+    }
+    if (data.events.length) {
+      appendLogEvents($("log-feed"), data.events);
+      state.logCursor = data.cursor;
+    }
+  } catch (_) { /* fail-soft: retry next tick */ }
+}
+
+function addLogPlaceholder(feed, text) {
+  const p = document.createElement("div");
+  p.className = "placeholder";
+  p.textContent = text;
+  feed.appendChild(p);
+}
+
+function appendLogEvents(feed, events) {
+  const ph = feed.querySelector(".placeholder");
+  if (ph) ph.remove();
+  for (const ev of events) {
+    const line = document.createElement("div");
+    line.className = "ev" + (ev.startsWith("⚠") ? " warn" : "");
+    line.textContent = ev;       // textContent: never trust the log boundary
+    feed.appendChild(line);
+  }
+  feed.scrollTop = feed.scrollHeight;
 }
 
 function renderSizes(init, resp) {

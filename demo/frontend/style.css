@@ -180,5 +180,31 @@ td.num { text-align: right; width: 90px; white-space: nowrap; }
   display: block;
 }
 
+/* live handshake log -------------------------------------------------------- */
+.logstrip .panel-head { margin-bottom: 10px; }
+.reclink {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--ink);
+  text-decoration: none;
+  border: 1px solid var(--line);
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+.reclink:hover { background: var(--ink); color: #fff; }
+.log-feed {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  border: 1px solid var(--line);
+  background: #fafafa;
+  padding: 10px 12px;
+  height: 132px;
+  overflow-y: auto;
+}
+.log-feed .ev { white-space: pre-wrap; word-break: break-word; }
+.log-feed .ev.warn { font-weight: 600; }   /* timeouts/errors stand out, no colour */
+.log-feed .placeholder { color: var(--muted); font-style: italic; }
+
 .note { color: var(--muted); font-size: 0.9rem; margin: 12px 0 0; }
 .foot { margin-top: 28px; font-size: 0.82rem; line-height: 1.4; }
