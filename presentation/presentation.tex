@@ -94,63 +94,42 @@ measures what it costs. Then move on.}
   \begin{enumerate}
     \item The problem -- why WireGuard needs post-quantum key exchange
     \item Two approaches -- PSK-slot baseline \& full hybrid
-    \item The hybrid handshake (design)
-    \item Implementation -- BoringTun and the \texttt{pq} feature
-    \item Security analysis \& evaluation
-    \item Conclusions
+    \item The hybrid handshake, implementation \& security
+    \item Evaluation \& conclusions -- then a live demo
   \end{enumerate}
 \end{frame}
-\note{Fifteen seconds. Motivation, the two approaches, the hybrid design,
-implementation, security and evaluation, conclusions. Don't dwell.}
+\note{Ten seconds. The problem, the two approaches, the hybrid design and
+implementation, evaluation -- then we switch to a live demo. Don't dwell.}
 
 %==============================================================================
-% 2 -- MOTIVATION
+% 2 -- THE PROBLEM (motivation + why migration is hard)
 %==============================================================================
-\begin{frame}{Motivation: the quantum clock is already running}
+\begin{frame}{The problem: a quantum clock, and a protocol that can't be changed}
   \begin{itemize}
-    \item WireGuard's key exchange rests \alert{entirely on X25519}.
-    \item Shor's algorithm breaks X25519 once a large quantum computer exists.
-    \item \textbf{Harvest-now, decrypt-later:} adversaries can record encrypted
-          traffic \emph{today} and decrypt it \emph{later}.
-    \item[$\Rightarrow$] For long-lived secrets, migration is urgent \emph{now}.
+    \item WireGuard's key exchange rests \alert{entirely on X25519} -- which
+          Shor's algorithm breaks once a large quantum computer exists.
+    \item \textbf{Harvest-now, decrypt-later:} adversaries record encrypted
+          traffic \emph{today}, decrypt it \emph{later}. For long-lived secrets,
+          migration is urgent \emph{now}.
+    \item NIST finalised \textbf{FIPS 203 (ML-KEM)} in 2024; classical key
+          exchange \textbf{deprecated by 2030}, disallowed by 2035.
   \end{itemize}
   \vfill
-  \begin{block}{The standards landscape}
-    NIST finalised \textbf{FIPS 203 (ML-KEM)} in Aug 2024 -- the standard for
-    key exchange. Classical key exchange to be \textbf{deprecated by 2030},
-    disallowed by 2035.
+  \begin{block}{But WireGuard is deliberately rigid}
+    One fixed cipher suite, \textbf{no negotiation} -- a security feature (kills
+    downgrade attacks), but \alert{no slot to drop a new algorithm into}. Two
+    natural handles: the \textbf{PSK slot}, and the \textbf{Noise IK handshake}
+    itself. \emph{This thesis builds on both.}
   \end{block}
 \end{frame}
 \note{WireGuard replaced IPsec/OpenVPN -- in the kernel, every OS, deployed by
-Cloudflare, Mullvad, Tailscale. But all key agreement rests on X25519, which Shor
-breaks. The threat is not future: harvest-now-decrypt-later means record now,
-decrypt later. NIST has put dates on it and standardised ML-KEM.}
-
-%==============================================================================
-% 3 -- WHY WIREGUARD IS HARD
-%==============================================================================
-\begin{frame}{WireGuard: important, but hard to migrate}
-  \begin{itemize}
-    \item Fixed cipher suite, \textbf{no negotiation} -- a security feature
-          (kills downgrade attacks)\ldots
-    \item \ldots but \alert{no built-in way to swap the key-exchange algorithm}.
-  \end{itemize}
-  \vfill
-  \begin{block}{Two natural handles for post-quantum augmentation}
-    \begin{enumerate}
-      \item The \textbf{PSK slot} -- a 256-bit symmetric key mixed into the
-            handshake's key derivation.
-      \item The \textbf{Noise IK handshake} itself -- embed a KEM alongside
-            X25519 in every handshake.
-    \end{enumerate}
-  \end{block}
-  \vfill
-  \centering\small\color{pqgray} This thesis builds on \textbf{both}.
-\end{frame}
-\note{WireGuard is deliberately opinionated: one cipher suite, no negotiation.
-That rigidity is why it avoided TLS/IPsec downgrade bugs, but it makes PQ
-migration hard. Two handles: the existing PSK slot, and the Noise IK handshake
-itself. I built both.}
+Cloudflare, Mullvad, Tailscale -- but all key agreement rests on X25519, which
+Shor breaks. The threat is not future: harvest-now-decrypt-later means record
+now, decrypt later, so for long-lived secrets migration is urgent now. NIST has
+put dates on it. And WireGuard is deliberately rigid -- one cipher suite, no
+negotiation -- which is why it dodged TLS/IPsec downgrade bugs but leaves no slot
+to drop a new algorithm into. Two handles: the PSK slot and the Noise IK
+handshake. I built both.}
 
 %==============================================================================
 % 4 -- RESEARCH QUESTION + TWO APPROACHES
@@ -213,87 +192,70 @@ the bold line: safe as long as one primitive holds. ML-KEM is young, so I hedge
 with X25519.}
 
 %==============================================================================
-% 6 -- THE HYBRID HANDSHAKE (figure, near-full frame)
+% 5 -- THE HYBRID HANDSHAKE + KEY DERIVATION (figure, near-full frame)
 %==============================================================================
 \begin{frame}{The hybrid handshake: ML-KEM rides the existing two messages}
   \begin{columns}[c]
-    \begin{column}{0.66\textwidth}
+    \begin{column}{0.62\textwidth}
       \centering
       \includegraphics[width=\linewidth,height=0.82\textheight,keepaspectratio]{fig_hybrid_handshake}
     \end{column}
-    \begin{column}{0.32\textwidth}
+    \begin{column}{0.36\textwidth}
       \small
       \begin{itemize}
         \item \textbf{Msg 1:} WG fields \alert{+ ML-KEM $ek$ (1{,}184 B)}
-        \item \textbf{Msg 2:} responder runs \textsf{Encaps} \alert{+ $ct$ (1{,}088 B)}
-        \item Initiator \textsf{Decaps} $\to$ both share \sskem
+        \item \textbf{Msg 2:} responder \textsf{Encaps} \alert{+ $ct$ (1{,}088 B)}
+        \item Initiator \textsf{Decaps} $\to$ shared \sskem; \textbf{no extra
+              round trips}
       \end{itemize}
-      \vspace{0.3em}
-      \footnotesize\color{pqgray}
-      No extra round trips. $ek$/$ct$ sit \emph{before} the MACs, so the
-      anti-DoS cookie still covers the PQ payload.
+      \vspace{0.4em}
+      \footnotesize
+      \textbf{Combining secrets:} after the four X25519 DHs, one extra
+      HMAC-BLAKE2s step folds in \sskem\ (WireGuard's \emph{own} KDF); $ek$/$ct$
+      bind into the transcript hash.
+      \vspace{0.3em}\par
+      \color{pqgray} $ek$/$ct$ sit \emph{before} the MACs $\Rightarrow$ the
+      anti-DoS cookie covers the PQ payload. \alert{Transport untouched} --
+      throughput stays identical.
     \end{column}
   \end{columns}
 \end{frame}
 \note{Core of the thesis -- walk the diagram. Fresh ML-KEM keypair per handshake;
 ek in message one. Responder runs Encaps, returns ct in message two. Initiator
-decapsulates -- same secret, no extra round trips. Design detail: ek/ct go before
-the MAC fields, so MAC1/MAC2 cover them and the anti-DoS cookie extends to the PQ
-payload for free.}
+decapsulates -- same secret, no extra round trips. The secrets combine with one
+extra HMAC-BLAKE2s step after the four X25519 results, reusing WireGuard's own
+KDF (clean security argument); ek and ct bind into the transcript hash. Design
+detail: ek/ct go before the MAC fields, so the anti-DoS cookie extends to the PQ
+payload for free. And I touch only the handshake -- the ChaCha20-Poly1305 data
+plane is unchanged, which is why throughput is identical. Full KDF equation is in
+backup if asked.}
 
 %==============================================================================
-% 7 -- KEY DERIVATION + WHAT STAYS UNTOUCHED
-%==============================================================================
-\begin{frame}{Combining the secrets -- and what stays untouched}
-  \begin{block}{One extra mixing step, using WireGuard's own KDF}
-    After the four X25519 secrets are mixed in as usual, fold in \sskem:
-    \[
-      temp = \mathsf{HMAC\text{-}BLAKE2s}(ck,\ \sskem),\qquad
-      ck' = \mathsf{HMAC\text{-}BLAKE2s}(temp,\ \mathtt{0x01})
-    \]
-    $ek$ and $ct$ are also bound into the transcript hash $h$.
-  \end{block}
-  \vfill
-  \begin{itemize}
-    \item \textbf{Reuses WireGuard's HMAC-BLAKE2s} -- no new HKDF/SHA-256
-          introduced; keeps the security argument clean.
-    \item \alert{Transport phase is byte-for-byte unchanged} -- ChaCha20-Poly1305
-          untouched. \emph{This is why throughput is identical.}
-  \end{itemize}
-\end{frame}
-\note{How the secrets combine: after the four X25519 results, one extra
-HMAC-BLAKE2s step folds in the KEM secret; ek and ct bound into the transcript
-hash. Two points: I reuse WireGuard's own KDF (clean security argument), and I
-touch only the handshake -- the ChaCha20-Poly1305 data plane is unchanged, which
-is why throughput is identical later.}
-
-%==============================================================================
-% 8 -- IMPLEMENTATION
+% 6 -- IMPLEMENTATION
 %==============================================================================
 \begin{frame}{Implementation}
   \begin{itemize}
     \item All PQ code behind a Cargo \texttt{pq} feature flag $\Rightarrow$
           \textbf{a vanilla build is byte-for-byte identical to upstream}.
-    \item \texttt{ml-kem} crate (RustCrypto): pure-Rust, \texttt{no\_std},
-          NIST KAT-tested $\Rightarrow$ runs on the Pi, \textbf{no C FFI}.
-    \item New message types \textbf{5} (PQ init) and \textbf{6} (PQ response);
-          parser dispatches on type+size; a vanilla build cleanly rejects them
+    \item \texttt{ml-kem} crate (RustCrypto): pure-Rust, \texttt{no\_std}, NIST
+          KAT-tested $\Rightarrow$ \textbf{no C FFI}, runs on the Pi.
+    \item New message types \textbf{5}/\textbf{6}; parser dispatches on
+          type+size; a vanilla build cleanly rejects them
           (\texttt{InvalidPacket}).
-    \item Memory-safe Rust; minimal carried state (initiator keeps only $dk$,
-          responder only $ek$).
   \end{itemize}
   \vfill
-  \begin{block}{Testing}
-    Extended BoringTun's own Criterion benchmarks and \texttt{noise::tests}:
-    full PQ handshake, end-to-end transport, ML-KEM/PSK orthogonality, and
-    vanilla-rejects-PQ.
-  \end{block}
+  \centering\small\color{pqgray}
+  Extended BoringTun's own Criterion benches \& \texttt{noise::tests} -- full PQ
+  handshake, end-to-end transport, vanilla-rejects-PQ.
+  \\[0.6em]\normalsize\color{pqprimary}\textbf{\ldots\ and you'll see it running
+  in the live demo.}
 \end{frame}
 \note{Everything PQ sits behind the pq feature -- so a build without it is
-byte-for-byte upstream BoringTun (that's how I get a clean baseline). ML-KEM via
+byte-for-byte upstream BoringTun, which is how I get a clean baseline. ML-KEM via
 the pure-Rust RustCrypto crate, KAT-tested, no C FFI, runs on the Pi. Two new
-message types, 5 and 6; vanilla rejects them gracefully. Extended BoringTun's own
-test suite to cover the PQ paths.}
+message types, 5 and 6; a vanilla peer rejects them gracefully. I extended
+BoringTun's own benches and unit tests to cover the PQ paths -- and you're about
+to see the whole thing run live, so I'll keep this short.}
 
 %==============================================================================
 % 9 -- SECURITY
@@ -324,63 +286,55 @@ classical X25519 -- deliberate, can't be forged retroactively, NIST says migrate
 KEX first.}
 
 %==============================================================================
-% 10 -- EVALUATION: LATENCY
+% 8 -- EVALUATION (latency + size + footprint)
 %==============================================================================
-\begin{frame}{Evaluation -- handshake latency (Criterion, 95\% CI)}
-  \begin{table}
-    \centering\small
-    \begin{tabular}{@{}lcc@{}}
-      \toprule
-      \textbf{Configuration} & \textbf{Apple M4} & \textbf{Raspberry Pi 5} \\
-      \midrule
-      Vanilla   & 150.8\,$\mu$s & 1312\,$\mu$s \\
-      PSK-slot  & 151.0\,$\mu$s & 1312\,$\mu$s \\
-      \textbf{Hybrid} & \textbf{247.3\,$\mu$s (+64\%)} & \textbf{1643\,$\mu$s (+25\%)} \\
-      \bottomrule
-    \end{tabular}
-  \end{table}
-  \vfill
-  \begin{itemize}\small
-    \item Overhead $\approx$ the three ML-KEM ops ($\approx$73\,$\mu$s M4 /
-          $\approx$280\,$\mu$s Pi); the rest is bigger buffers + an extra hash pass.
-    \item \alert{It is 64\% of a \emph{sub-millisecond, crypto-only} cost} --
-          over a real link, RTT dominates and the data plane is untouched.
-    \item \textbf{Surprise:} on the Pi, one X25519 DH (193\,$\mu$s) is
-          \emph{slower} than any ML-KEM op -- \texttt{x25519-dalek} lacks NEON;
-          ML-KEM's NTT maps well to the integer pipeline.
-  \end{itemize}
+\begin{frame}{Evaluation -- latency, size, footprint (Criterion, 95\% CI)}
+  \begin{columns}[T]
+    \begin{column}{0.52\textwidth}
+      \begin{table}
+        \centering\small
+        \begin{tabular}{@{}lcc@{}}
+          \toprule
+          \textbf{Config} & \textbf{Apple M4} & \textbf{Pi 5} \\
+          \midrule
+          Vanilla   & 150.8\,$\mu$s & 1312\,$\mu$s \\
+          PSK-slot  & 151.0\,$\mu$s & 1312\,$\mu$s \\
+          \textbf{Hybrid} & \textbf{247.3\,$\mu$s} & \textbf{1643\,$\mu$s} \\
+          \midrule
+          \emph{overhead} & \textbf{+64\%} & \textbf{+25\%} \\
+          \bottomrule
+        \end{tabular}
+      \end{table}
+      \vspace{0.3em}
+      \small\color{pqgray}
+      64\% of a \emph{sub-millisecond, crypto-only} cost -- over a real link RTT
+      dominates, and the data plane is untouched.
+    \end{column}
+    \begin{column}{0.46\textwidth}
+      \small
+      \begin{itemize}
+        \item \textbf{Surprise:} on the Pi one X25519 DH (193\,$\mu$s) is
+              \emph{slower} than any ML-KEM op -- \texttt{x25519-dalek} lacks
+              NEON; ML-KEM's NTT maps to the integer pipeline.
+        \item \textbf{Size is the real cost:} handshake \textbf{240\,B $\to$
+              2{,}512\,B}, yet both messages fit a 1{,}500\,B MTU \alert{in one
+              datagram} (confirmed over Wi-Fi).
+        \item \textbf{Footprint negligible:} binary +65\,KiB, RSS +0.16\,MiB.
+        \item \textbf{Throughput identical} -- same data plane;
+              \alert{you'll see it live}.
+      \end{itemize}
+    \end{column}
+  \end{columns}
 \end{frame}
-\note{Criterion microbenchmarks, 500 samples, bootstrapped CIs, on M4 and Pi 5 --
-two ends of the ARM64 spectrum. Hybrid adds 64% on M4, 25% on Pi -- but it's 64%
-of a sub-millisecond crypto-only cost. PSK-slot is indistinguishable from vanilla,
-as expected. The memorable finding: on the Pi a single X25519 DH is slower than
-any ML-KEM op, because x25519-dalek doesn't use NEON while ML-KEM's NTT maps onto
-the integer pipeline. Deliver this one with a bit of "this surprised me".}
-
-%==============================================================================
-% 11 -- EVALUATION: SIZE / THROUGHPUT / FOOTPRINT
-%==============================================================================
-\begin{frame}{Evaluation -- size, throughput, footprint}
-  \begin{itemize}
-    \item \textbf{Packet size is the real cost:} handshake grows
-          \textbf{240 B $\to$ 2{,}512 B} (+2{,}272 B). Both messages still fit a
-          1{,}500 B Ethernet MTU \alert{in a single datagram} -- confirmed over
-          real Wi-Fi, no fragmentation.
-    \item \textbf{Throughput unchanged:} $\sim$470 Mbps loopback, $\sim$80--85
-          Mbps cross-device; vanilla vs hybrid CIs overlap (same
-          ChaCha20-Poly1305 data plane).
-    \item \textbf{Footprint negligible:} binary \textbf{+65 KiB} (+5.7\%), peak
-          RSS \textbf{+0.16 MiB} -- a non-issue even on the Pi.
-  \end{itemize}
-  \vfill
-  \centering\small\color{pqgray}
-  The cost of the hybrid is \emph{size}, not time -- and the size still fits.
-\end{frame}
-\note{Three quick results. The real cost is size: handshake grows tenfold to
-~2.5 KB, but both messages fit a 1500-byte frame as a single datagram -- verified
-over real Wi-Fi. Throughput identical (same data plane) -- this table is a
-correctness check. Footprint: ~65 KiB code, fraction of a MiB RAM. Tagline: the
-cost is size, not time, and the size still fits.}
+\note{Criterion microbenchmarks, 500 samples, bootstrapped CIs, on M4 and Pi 5.
+Hybrid adds 64\% on M4, 25\% on Pi -- but it's 64\% of a sub-millisecond,
+crypto-only cost; PSK-slot is indistinguishable from vanilla. The memorable
+finding, with a bit of "this surprised me": on the Pi a single X25519 DH is
+slower than any ML-KEM op, because x25519-dalek doesn't use NEON while ML-KEM's
+NTT maps onto the integer pipeline. The real cost is size -- the handshake grows
+tenfold to ~2.5 KB, but both messages fit a 1500-byte frame as one datagram,
+verified over Wi-Fi. Footprint is negligible, and throughput is identical because
+the data plane is untouched -- which the demo will show directly.}
 
 %==============================================================================
 % 12 -- CONCLUSIONS
@@ -478,6 +432,36 @@ problems: MTU on hostile paths, PQ authentication via ML-DSA, a formal proof
           slot. This work modifies the Noise handshake directly, on production
           code, with standardised ML-KEM -- complementary to the formal
           Hybrid-WireGuard proof (Lafourcade et al.).
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Backup -- combining the secrets (key derivation)}
+  \begin{block}{One extra mixing step, using WireGuard's own KDF}
+    After the four X25519 secrets are mixed in as usual, fold in \sskem:
+    \[
+      temp = \mathsf{HMAC\text{-}BLAKE2s}(ck,\ \sskem),\qquad
+      ck' = \mathsf{HMAC\text{-}BLAKE2s}(temp,\ \mathtt{0x01})
+    \]
+    $ek$ and $ct$ are also bound into the transcript hash $h$.
+  \end{block}
+  \begin{itemize}
+    \item \textbf{Reuses WireGuard's HMAC-BLAKE2s} -- no new HKDF/SHA-256
+          introduced; keeps the security argument clean.
+    \item \alert{Transport phase is byte-for-byte unchanged} --
+          ChaCha20-Poly1305 untouched. \emph{This is why throughput is identical.}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Backup -- throughput \& footprint detail}
+  \begin{itemize}
+    \item \textbf{Throughput unchanged:} $\sim$470 Mbps loopback, $\sim$80--85
+          Mbps cross-device; vanilla vs hybrid CIs overlap (same
+          ChaCha20-Poly1305 data plane). Treat the table as a correctness check.
+    \item \textbf{Footprint negligible:} binary \textbf{+65 KiB} (+5.7\%), peak
+          RSS \textbf{+0.16 MiB} -- a non-issue even on the Pi.
+    \item \textbf{Packet size:} handshake grows \textbf{240 B $\to$ 2{,}512 B}
+          (+2{,}272 B); both messages fit a 1{,}500 B Ethernet MTU in a single
+          datagram, confirmed over real Wi-Fi, no fragmentation.
   \end{itemize}
 \end{frame}
 
