@@ -87,21 +87,22 @@ for row in "${ROWS[@]}"; do
   MACPUB[$name]=$(wg pubkey <"$WORKDIR/$name.mac.key")
 done
 
-echo "==> [4/7] Bringing up VPS tunnels"
-MAC_VANILLA_PUB="${MACPUB[vanilla]}" MAC_PSK_PUB="${MACPUB[psk]}" MAC_PQ_PUB="${MACPUB[pq]}" \
-  ssh "$VPS_SSH" "PQ_SRC=$VPS_SRC DEMO_WORKDIR=$WORKDIR \
-    MAC_VANILLA_PUB=${MACPUB[vanilla]} MAC_PSK_PUB=${MACPUB[psk]} MAC_PQ_PUB=${MACPUB[pq]} \
-    bash $VPS_SRC/demo/vps/setup.sh up"
-remote pubkeys >"$WORKDIR/vps_pubkeys"
-
-echo "==> [5/7] Cross-host ML-KEM-768 PSK exchange"
+# Do the PSK exchange BEFORE bring-up so wgp is created WITH the preshared-key
+# in a single `wg set` — boringtun rejects adding a PSK to an existing peer
+# afterwards ("Unable to modify interface: Protocol error").
+echo "==> [4/7] Cross-host ML-KEM-768 PSK exchange"
 "$WORKDIR/pq-psk-tool" keygen -e "$WORKDIR/mlkem_ek.b64" -d "$WORKDIR/mlkem_dk.b64"
 scp -q "$WORKDIR/mlkem_ek.b64" "$VPS_SSH:$WORKDIR/mlkem_ek.b64"
 remote encaps
 scp -q "$VPS_SSH:$WORKDIR/mlkem_ct.b64" "$WORKDIR/mlkem_ct.b64"
 "$WORKDIR/pq-psk-tool" decaps "$WORKDIR/mlkem_dk.b64" "$WORKDIR/mlkem_ct.b64" -p "$WORKDIR/psk.b64"
-MAC_PSK_PUB="${MACPUB[psk]}" ssh "$VPS_SSH" "DEMO_WORKDIR=$WORKDIR MAC_PSK_PUB=${MACPUB[psk]} \
-    bash $VPS_SRC/demo/vps/setup.sh psk-apply"
+
+echo "==> [5/7] Bringing up VPS tunnels (wgp gets the PSK at creation)"
+MAC_VANILLA_PUB="${MACPUB[vanilla]}" MAC_PSK_PUB="${MACPUB[psk]}" MAC_PQ_PUB="${MACPUB[pq]}" \
+  ssh "$VPS_SSH" "PQ_SRC=$VPS_SRC DEMO_WORKDIR=$WORKDIR \
+    MAC_VANILLA_PUB=${MACPUB[vanilla]} MAC_PSK_PUB=${MACPUB[psk]} MAC_PQ_PUB=${MACPUB[pq]} \
+    bash $VPS_SRC/demo/vps/setup.sh up"
+remote pubkeys >"$WORKDIR/vps_pubkeys"
 
 echo "==> [6/7] Bringing up Mac tunnels"
 kill_iface_daemons; sleep 1
