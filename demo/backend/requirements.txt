@@ -1,0 +1,7 @@
+# Backend deps for the PQ-WireGuard live demo.
+# Install into a venv:  python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
+fastapi>=0.110
+uvicorn[standard]>=0.27
+httpx>=0.27
+python-multipart>=0.0.9   # required by FastAPI for Form()/UploadFile
+anyio>=4.0

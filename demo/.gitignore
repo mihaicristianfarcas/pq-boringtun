@@ -1,0 +1,11 @@
+# Python build artifacts and virtualenv for the demo backend
+__pycache__/
+*.pyc
+backend/.venv/
+.venv/
+
+# runtime key material / logs (created under DEMO_WORKDIR=/tmp/pq-demo by default,
+# but ignore here too in case anyone points the workdir into the tree)
+*.key
+*.peerpub
+*.b64

@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hybrid PQ WireGuard — Live Demo</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main>
+    <header class="top">
+      <h1>Hybrid Post-Quantum WireGuard <span class="muted">— live demo</span></h1>
+      <div id="mode" class="mode" title="peer mode">…</div>
+    </header>
+
+    <p class="lede">
+      Same app, three handshakes. Watch what changes in the handshake —
+      and what stays identical in the data plane.
+    </p>
+
+    <nav id="tabs" class="tabs" aria-label="variant"></nav>
+
+    <!-- 1. Handshake X-ray ---------------------------------------------------->
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Handshake X-ray</h2>
+        <button id="connect" class="btn">Connect &amp; capture</button>
+      </div>
+
+      <table class="xray">
+        <tbody>
+          <tr>
+            <th scope="row">Initiation</th>
+            <td class="bar-cell"><div class="bar" id="bar-init"></div></td>
+            <td class="num" id="size-init">—</td>
+          </tr>
+          <tr>
+            <th scope="row">Response</th>
+            <td class="bar-cell"><div class="bar" id="bar-resp"></div></td>
+            <td class="num" id="size-resp">—</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <dl class="metrics">
+        <div><dt>Handshake time (live, over the link)</dt><dd class="num" id="m-live">—</dd></div>
+        <div><dt>Crypto-only cost (thesis, Apple M4)</dt><dd class="num" id="m-thesis">—</dd></div>
+        <div><dt>Matches thesis sizes</dt><dd id="m-match">—</dd></div>
+      </dl>
+      <p id="capture-note" class="note"></p>
+    </section>
+
+    <!-- 2. Verdict ------------------------------------------------------------>
+    <section class="panel">
+      <h2>Security verdict</h2>
+      <p id="crypto" class="crypto num">—</p>
+      <ul class="verdict">
+        <li>Quantum-safe confidentiality <span id="v-safe" class="mark">—</span></li>
+        <li>Post-quantum forward secrecy <span id="v-fs" class="mark">—</span></li>
+      </ul>
+      <p id="verdict-note" class="note"></p>
+    </section>
+
+    <!-- 3. Transfer ----------------------------------------------------------->
+    <section class="panel">
+      <h2>Transfer through the tunnel</h2>
+      <div class="transfer-controls">
+        <label class="file">
+          <input type="file" id="file" accept="image/*" />
+          <span>Choose image…</span>
+        </label>
+        <span class="or">or</span>
+        <input type="text" id="secret" placeholder="type a secret message…" />
+        <button id="send" class="btn">Send</button>
+      </div>
+      <div id="transfer-result" class="transfer-result"></div>
+    </section>
+
+    <footer class="foot muted">
+      Real boringtun handshakes (vanilla / PSK / PQ-hybrid) · sizes captured live
+      with tcpdump · payload round-tripped &amp; SHA-256-verified on the remote host.
+    </footer>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
