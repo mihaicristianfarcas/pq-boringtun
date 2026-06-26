@@ -81,8 +81,10 @@ up() {
     echo "$name $(cat "$WORK/$name.vps.pub")" >>"$WORK/vps_pubkeys"
 
     sudo "$bin" "$iface" --disable-drop-privileges 2>"$WORK/$name.vps.log" &
-    vpid=$!; sleep 1
-    kill -0 "$vpid" 2>/dev/null || { echo "ERROR: $name daemon for $iface exited — $iface already in use? (ip link show $iface)"; exit 1; }
+    sleep 1
+    # boringtun daemonises on Linux, so the launcher returns immediately by
+    # design — verify the INTERFACE exists rather than the parent pid.
+    ip link show "$iface" >/dev/null 2>&1 || { echo "ERROR: $name daemon did not create $iface — see $WORK/$name.vps.log"; exit 1; }
 
     psk_args=(); [ "$psk" = "yes" ] && [ -f "$WORK/psk.b64" ] && psk_args=(preshared-key "$WORK/psk.b64")
     sudo wg set "$iface" private-key "$WORK/$name.vps.key" listen-port "$port" \

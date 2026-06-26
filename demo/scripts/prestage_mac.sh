@@ -33,6 +33,13 @@ if [ "$(id -u)" -eq 0 ]; then
   exit 1
 fi
 
+# A prior `sudo local_fallback.sh` leaves WORKDIR root-owned; reclaim it so this
+# user-run script can write keys/binaries there.
+if [ ! -w "$WORKDIR" ]; then
+  echo "Reclaiming $WORKDIR (root-owned from a prior sudo run)…"
+  $SUDO chown -R "$(id -u):$(id -g)" "$WORKDIR"
+fi
+
 # name  iface  port   mac_ip       peer_ip      build    psk
 ROWS=(
   "vanilla utun20 51820 10.13.0.1 10.13.0.2 vanilla no"
