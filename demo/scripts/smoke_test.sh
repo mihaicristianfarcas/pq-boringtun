@@ -19,7 +19,11 @@ fail=0
 printf "%-9s %-7s %-9s\n" "variant" "ping" "receiver"
 for row in "${ROWS[@]}"; do
   read -r name pip <<<"$row"
-  if ping -c 1 "$pip" >/dev/null 2>&1; then p=PASS; else p=FAIL; fail=1; fi
+  # -c 2 -t 5, not -c 1: if the session has gone idle the first packet must
+  # trigger a fresh handshake and ride a slow real RTT, which a single short
+  # ping loses (this is why PSK falsely showed FAIL — the handshake completes,
+  # the lone ICMP just times out). Two packets / 5s pass once the tunnel is up.
+  if ping -c 2 -t 5 "$pip" >/dev/null 2>&1; then p=PASS; else p=FAIL; fail=1; fi
   if curl -s --max-time 5 "http://$pip:$RECVPORT/health" | grep -q "up"; then r=PASS; else r=FAIL; fail=1; fi
   printf "%-9s %-7s %-9s\n" "$name" "$p" "$r"
 done

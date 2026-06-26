@@ -44,14 +44,18 @@ kill_iface_daemons() {
   done
 }
 
+# Atomic binary install — rename over the target instead of overwriting in place,
+# so a surviving daemon never trips "Text file busy" on the rebuild.
+install_bin() { cp "$1" "$2.new" && mv -f "$2.new" "$2"; }
+
 build_binaries() {
   echo "--- Building boringtun (vanilla + pq) and pq-psk-tool ---"
   cargo build -p boringtun-cli --manifest-path "$PROJECT_ROOT/Cargo.toml"
-  cp "$PROJECT_ROOT/target/debug/boringtun-cli" "$WORKDIR/boringtun-vanilla"
+  install_bin "$PROJECT_ROOT/target/debug/boringtun-cli" "$WORKDIR/boringtun-vanilla"
   cargo build -p boringtun-cli --manifest-path "$PROJECT_ROOT/Cargo.toml" --features boringtun/pq
-  cp "$PROJECT_ROOT/target/debug/boringtun-cli" "$WORKDIR/boringtun-pq"
+  install_bin "$PROJECT_ROOT/target/debug/boringtun-cli" "$WORKDIR/boringtun-pq"
   cargo build -p pq-psk-tool --manifest-path "$PROJECT_ROOT/Cargo.toml"
-  cp "$PROJECT_ROOT/target/debug/pq-psk-tool" "$WORKDIR/pq-psk-tool"
+  install_bin "$PROJECT_ROOT/target/debug/pq-psk-tool" "$WORKDIR/pq-psk-tool"
   # This script runs as root, so cargo just root-owned target/. Hand it back to
   # the invoking user so a later user-run build (e.g. prestage) still works.
   [ -n "${SUDO_USER:-}" ] && chown -R "$SUDO_USER" "$PROJECT_ROOT/target" 2>/dev/null || true
@@ -88,11 +92,14 @@ up() {
     echo "$ppub" >"$WORKDIR/$name.peerpub"
 
     # daemons (verify each actually claimed its interface — a silent exit here
-    # means the utun number was taken, which is exactly how the PSK tunnel broke)
-    WG_LOG_LEVEL=debug "$bin" "$mif" --foreground --disable-drop-privileges 2>"$WORKDIR/$name.mac.log" &
+    # means the utun number was taken, which is exactly how the PSK tunnel broke).
+    # --foreground logs to STDOUT: redirect BOTH streams so the trace lands in the
+    # log file, not the terminal. info = startup + timeouts/errors; override with
+    # WG_LOG_LEVEL=debug for the full per-packet trace.
+    WG_LOG_LEVEL="${WG_LOG_LEVEL:-info}" "$bin" "$mif" --foreground --disable-drop-privileges >"$WORKDIR/$name.mac.log" 2>&1 &
     mpid=$!; echo "$mpid" >"$WORKDIR/$name.mac.pid"; sleep 1
     kill -0 "$mpid" 2>/dev/null || { echo "ERROR: $name daemon for $mif exited — is $mif already in use? (ifconfig $mif; pgrep -fl $mif)"; exit 1; }
-    WG_LOG_LEVEL=debug "$bin" "$pif" --foreground --disable-drop-privileges 2>"$WORKDIR/$name.peer.log" &
+    WG_LOG_LEVEL="${WG_LOG_LEVEL:-info}" "$bin" "$pif" --foreground --disable-drop-privileges >"$WORKDIR/$name.peer.log" 2>&1 &
     ppid=$!; echo "$ppid" >"$WORKDIR/$name.peer.pid"; sleep 1
     kill -0 "$ppid" 2>/dev/null || { echo "ERROR: $name daemon for $pif exited — is $pif already in use? (ifconfig $pif; pgrep -fl $pif)"; exit 1; }
 
@@ -116,7 +123,8 @@ up() {
   echo "--- Forcing first handshakes ---"
   for row in "${ROWS[@]}"; do
     read -r name _ _ _ _ _ pip _ _ <<<"$row"
-    ping -c 1 "$pip" >/dev/null 2>&1 && echo "  $name: handshake OK ($pip)" \
+    # -c 2 -t 5: first packet triggers the handshake, second confirms reachability
+    ping -c 2 -t 5 "$pip" >/dev/null 2>&1 && echo "  $name: handshake OK ($pip)" \
       || echo "  $name: ping failed (check $WORKDIR/$name.mac.log)"
   done
   echo "Local fallback up. Start the UI:  python demo/backend/app.py --local"

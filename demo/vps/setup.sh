@@ -27,6 +27,20 @@ ROWS=(
   "pq      wgq 51822 10.13.2.2 10.13.2.1 pq      no"
 )
 
+# Atomic binary install. NEVER cp over a binary in place: if a boringtun daemon
+# from a previous run is still executing $dst, Linux refuses the overwrite with
+# ETXTBSY ("Text file busy"). Copy beside the target, then rename over it — the
+# live daemon keeps its now-unlinked inode, the new binary takes the name.
+install_bin() { cp "$1" "$2.new" && mv -f "$2.new" "$2"; }
+
+# Kill boringtun daemons + receiver left by a previous run so (a) their open
+# binary files are released before we rebuild over them and (b) their UDP ports
+# and tun interfaces are freed.
+kill_daemons() {
+  pkill -f "receiver.py" 2>/dev/null || true
+  for ifc in wgv wgp wgq; do sudo pkill -f "boringtun.* $ifc( |\$)" 2>/dev/null || true; done
+}
+
 provision() {
   echo "--- Installing dependencies ---"
   if command -v apt-get >/dev/null; then
@@ -46,12 +60,16 @@ provision() {
   [ -e /dev/net/tun ] || { sudo modprobe tun || true; }
 
   echo "--- Building binaries from $SRC (native arch) ---"
+  # Release the old binaries first (a live daemon -> "Text file busy" on copy),
+  # then install atomically so even a surviving daemon can't block the rebuild.
+  kill_daemons
+  sleep 1
   cargo build -p boringtun-cli --manifest-path "$SRC/Cargo.toml" >/dev/null
-  cp "$SRC/target/debug/boringtun-cli" "$WORK/boringtun-vanilla"
+  install_bin "$SRC/target/debug/boringtun-cli" "$WORK/boringtun-vanilla"
   cargo build -p boringtun-cli --manifest-path "$SRC/Cargo.toml" --features boringtun/pq >/dev/null
-  cp "$SRC/target/debug/boringtun-cli" "$WORK/boringtun-pq"
+  install_bin "$SRC/target/debug/boringtun-cli" "$WORK/boringtun-pq"
   cargo build -p pq-psk-tool --manifest-path "$SRC/Cargo.toml" >/dev/null
-  cp "$SRC/target/debug/pq-psk-tool" "$WORK/pq-psk-tool"
+  install_bin "$SRC/target/debug/pq-psk-tool" "$WORK/pq-psk-tool"
   echo "Provision complete."
 }
 
@@ -67,20 +85,25 @@ up() {
   echo "--- Bringing up VPS tunnels (responder) ---"
   : >"$WORK/vps_pubkeys"
   echo "--- Clearing any stale boringtun daemons ---"
-  for ifc in wgv wgp wgq; do sudo pkill -f "boringtun.* $ifc( |\$)" 2>/dev/null || true; done
+  kill_daemons
   sleep 1
   for row in "${ROWS[@]}"; do
     read -r name iface port vip mip build psk <<<"$row"
     bin="$WORK/boringtun-$build"
 
-    # stable VPS keypair per tunnel (reused across re-runs)
+    # stable VPS keypair per tunnel (reused across re-runs). umask 0600 the key
+    # so `wg genkey` doesn't warn about a world-readable secret.
     if [ ! -f "$WORK/$name.vps.key" ]; then
-      wg genkey >"$WORK/$name.vps.key"
+      ( umask 077; wg genkey >"$WORK/$name.vps.key" )
       wg pubkey <"$WORK/$name.vps.key" >"$WORK/$name.vps.pub"
     fi
     echo "$name $(cat "$WORK/$name.vps.pub")" >>"$WORK/vps_pubkeys"
 
-    sudo "$bin" "$iface" --disable-drop-privileges 2>"$WORK/$name.vps.log" &
+    # WG_LOG_FILE keeps each daemon's log in its own file (the default is a
+    # single /tmp/boringtun.out the three would clobber); info level keeps it to
+    # startup + timeouts/errors, not the per-packet handshake/keepalive spam.
+    sudo env WG_LOG_LEVEL="${WG_LOG_LEVEL:-info}" WG_LOG_FILE="$WORK/$name.vps.log" \
+        "$bin" "$iface" --disable-drop-privileges >>"$WORK/$name.vps.boot.log" 2>&1 &
     sleep 1
     # boringtun daemonises on Linux, so the launcher returns immediately by
     # design — verify the INTERFACE exists rather than the parent pid.
@@ -113,11 +136,10 @@ psk_apply() {
 pubkeys() { cat "$WORK/vps_pubkeys"; }
 
 down() {
-  pkill -f "receiver.py" 2>/dev/null || true
+  kill_daemons
   for row in "${ROWS[@]}"; do
     read -r _ iface _ _ _ _ _ <<<"$row"
     sudo ip link set "$iface" down 2>/dev/null || true
-    sudo pkill -f "boringtun.* $iface" 2>/dev/null || true
   done
   echo "VPS down."
 }

@@ -25,66 +25,90 @@ WORKDIR="${DEMO_WORKDIR:-/tmp/pq-demo}"
 VPS_SSH="${DEMO_VPS_SSH:?set DEMO_VPS_SSH (e.g. ubuntu@1.2.3.4)}"
 VPS_HOST="${DEMO_VPS_HOST:?set DEMO_VPS_HOST (public IP the Mac dials)}"
 VPS_SRC="/opt/pq-boringtun"
-SUDO="${SUDO:-sudo}"   # local tunnel commands need root; ssh/scp/rsync do NOT
+SUDO="${SUDO:-sudo}" # local tunnel commands need root; ssh/scp/rsync do NOT
 mkdir -p "$WORKDIR"
 
+# Atomic binary install — copy beside the target then rename over it, so a still
+# running boringtun daemon never blocks the overwrite (Linux: "Text file busy").
+install_bin() { cp "$1" "$2.new" && mv -f "$2.new" "$2"; }
+
 if [ "$(id -u)" -eq 0 ]; then
-  echo "Run as your normal user, NOT root — otherwise ssh/scp would use root's keys." >&2
-  exit 1
+	echo "Run as your normal user, NOT root — otherwise ssh/scp would use root's keys." >&2
+	exit 1
 fi
 
 # A prior `sudo local_fallback.sh` leaves WORKDIR root-owned; reclaim it so this
 # user-run script can write keys/binaries there.
 if [ ! -w "$WORKDIR" ]; then
-  echo "Reclaiming $WORKDIR (root-owned from a prior sudo run)…"
-  $SUDO chown -R "$(id -u):$(id -g)" "$WORKDIR"
+	echo "Reclaiming $WORKDIR (root-owned from a prior sudo run)…"
+	$SUDO chown -R "$(id -u):$(id -g)" "$WORKDIR"
 fi
 
 # Likewise, a prior `sudo` cargo build can leave files inside target/ root-owned,
 # which breaks this user-run build (Permission denied writing .fingerprint).
 if [ -d "$PROJECT_ROOT/target" ] && [ -n "$(find "$PROJECT_ROOT/target" -user root -print -quit 2>/dev/null)" ]; then
-  echo "Reclaiming target/ (root-owned files from a prior sudo build)…"
-  $SUDO chown -R "$(id -u):$(id -g)" "$PROJECT_ROOT/target"
+	echo "Reclaiming target/ (root-owned files from a prior sudo build)…"
+	$SUDO chown -R "$(id -u):$(id -g)" "$PROJECT_ROOT/target"
 fi
 
 # name  iface  port   mac_ip       peer_ip      build    psk
 ROWS=(
-  "vanilla utun20 51820 10.13.0.1 10.13.0.2 vanilla no"
-  "psk     utun21 51821 10.13.1.1 10.13.1.2 vanilla yes"
-  "pq      utun22 51822 10.13.2.1 10.13.2.2 pq      no"
+	"vanilla utun20 51820 10.13.0.1 10.13.0.2 vanilla no"
+	"psk     utun21 51821 10.13.1.1 10.13.1.2 vanilla yes"
+	"pq      utun22 51822 10.13.2.1 10.13.2.2 pq      no"
 )
 INTERFACES=(utun20 utun21 utun22)
 
 # Clear stale boringtun on our Mac interfaces (e.g. left by cross_device_test_mac.sh,
 # which also uses utun20/21) so the demo tunnels don't collide.
 kill_iface_daemons() {
-  for ifc in "${INTERFACES[@]}"; do
-    $SUDO pkill -f "boringtun.* $ifc( |\$)" 2>/dev/null || true
-  done
+	for ifc in "${INTERFACES[@]}"; do
+		$SUDO pkill -f "boringtun.* $ifc( |\$)" 2>/dev/null || true
+	done
 }
 
 remote() { ssh "$VPS_SSH" "PQ_SRC=$VPS_SRC DEMO_WORKDIR=$WORKDIR bash $VPS_SRC/demo/vps/setup.sh $*"; }
 
+# --- teardown: `prestage_mac.sh down` tears down both ends ---------------------
+if [ "${1:-}" = "down" ]; then
+	echo "Tearing down demo tunnels (Mac + VPS)…"
+	kill_iface_daemons
+	ssh -o ConnectTimeout=8 "$VPS_SSH" "DEMO_WORKDIR=$WORKDIR bash $VPS_SRC/demo/vps/setup.sh down" 2>/dev/null || true
+	rm -f "$WORKDIR"/*.pid 2>/dev/null || true
+	echo "Done. (key material left in $WORKDIR; rm -rf it to fully reset)"
+	exit 0
+fi
+
+# On failure AFTER tunnels are started, don't leave half-up Mac daemons behind.
+STARTED=0
+cleanup_on_fail() {
+	[ "$STARTED" = "1" ] || return 0
+	echo >&2
+	echo "prestage failed — cleaning up Mac tunnels (run with 'down' to also clear the VPS)…" >&2
+	kill_iface_daemons
+}
+trap cleanup_on_fail ERR
+
 echo "==> [1/7] Building Mac binaries"
 cargo build -p boringtun-cli --manifest-path "$PROJECT_ROOT/Cargo.toml"
-cp "$PROJECT_ROOT/target/debug/boringtun-cli" "$WORKDIR/boringtun-vanilla"
+install_bin "$PROJECT_ROOT/target/debug/boringtun-cli" "$WORKDIR/boringtun-vanilla"
 cargo build -p boringtun-cli --manifest-path "$PROJECT_ROOT/Cargo.toml" --features boringtun/pq
-cp "$PROJECT_ROOT/target/debug/boringtun-cli" "$WORKDIR/boringtun-pq"
+install_bin "$PROJECT_ROOT/target/debug/boringtun-cli" "$WORKDIR/boringtun-pq"
 cargo build -p pq-psk-tool --manifest-path "$PROJECT_ROOT/Cargo.toml"
-cp "$PROJECT_ROOT/target/debug/pq-psk-tool" "$WORKDIR/pq-psk-tool"
+install_bin "$PROJECT_ROOT/target/debug/pq-psk-tool" "$WORKDIR/pq-psk-tool"
 
 echo "==> [2/7] Syncing source to VPS and provisioning"
 ssh "$VPS_SSH" "sudo mkdir -p $VPS_SRC && sudo chown \$(id -u):\$(id -g) $VPS_SRC"
 rsync -az --delete --exclude target --exclude .git --exclude '.venv' --exclude '__pycache__' \
-  "$PROJECT_ROOT/" "$VPS_SSH:$VPS_SRC/"
+	"$PROJECT_ROOT/" "$VPS_SSH:$VPS_SRC/"
 remote provision
 
 echo "==> [3/7] Generating Mac keypairs"
 declare -A MACPUB
 for row in "${ROWS[@]}"; do
-  read -r name iface port mip pip build psk <<<"$row"
-  wg genkey >"$WORKDIR/$name.mac.key"
-  MACPUB[$name]=$(wg pubkey <"$WORKDIR/$name.mac.key")
+	read -r name iface port mip pip build psk <<<"$row"
+	( umask 077; wg genkey >"$WORKDIR/$name.mac.key" ) # 0600 so wg doesn't warn
+	MACPUB[$name]=$(wg pubkey <"$WORKDIR/$name.mac.key")
 done
 
 # Do the PSK exchange BEFORE bring-up so wgp is created WITH the preshared-key
@@ -99,35 +123,50 @@ scp -q "$VPS_SSH:$WORKDIR/mlkem_ct.b64" "$WORKDIR/mlkem_ct.b64"
 
 echo "==> [5/7] Bringing up VPS tunnels (wgp gets the PSK at creation)"
 MAC_VANILLA_PUB="${MACPUB[vanilla]}" MAC_PSK_PUB="${MACPUB[psk]}" MAC_PQ_PUB="${MACPUB[pq]}" \
-  ssh "$VPS_SSH" "PQ_SRC=$VPS_SRC DEMO_WORKDIR=$WORKDIR \
+	ssh "$VPS_SSH" "PQ_SRC=$VPS_SRC DEMO_WORKDIR=$WORKDIR \
     MAC_VANILLA_PUB=${MACPUB[vanilla]} MAC_PSK_PUB=${MACPUB[psk]} MAC_PQ_PUB=${MACPUB[pq]} \
     bash $VPS_SRC/demo/vps/setup.sh up"
 remote pubkeys >"$WORKDIR/vps_pubkeys"
 
 echo "==> [6/7] Bringing up Mac tunnels"
-kill_iface_daemons; sleep 1
+STARTED=1
+kill_iface_daemons
+sleep 1
 for row in "${ROWS[@]}"; do
-  read -r name iface port mip pip build psk <<<"$row"
-  bin="$WORKDIR/boringtun-$build"
-  vpspub=$(awk -v n="$name" '$1==n{print $2}' "$WORKDIR/vps_pubkeys")
-  echo "$vpspub" >"$WORKDIR/$name.peerpub"   # orchestrator uses this to re-handshake
+	read -r name iface port mip pip build psk <<<"$row"
+	bin="$WORKDIR/boringtun-$build"
+	vpspub=$(awk -v n="$name" '$1==n{print $2}' "$WORKDIR/vps_pubkeys")
+	echo "$vpspub" >"$WORKDIR/$name.peerpub" # orchestrator uses this to re-handshake
 
-  $SUDO "$bin" "$iface" --foreground --disable-drop-privileges 2>"$WORKDIR/$name.mac.log" &
-  mpid=$!; echo "$mpid" >"$WORKDIR/$name.mac.pid"; sleep 1
-  kill -0 "$mpid" 2>/dev/null || { echo "ERROR: $name daemon for $iface exited — is $iface already in use? (ifconfig $iface; pgrep -fl $iface)"; exit 1; }
+	# --foreground logs to STDOUT, so redirect BOTH streams into the log file or
+	# the handshake/keepalive spam floods the terminal. info level = startup +
+	# timeouts/errors only; set WG_LOG_LEVEL=debug to get the full trace back.
+	$SUDO env WG_LOG_LEVEL="${WG_LOG_LEVEL:-info}" "$bin" "$iface" --foreground --disable-drop-privileges >"$WORKDIR/$name.mac.log" 2>&1 &
+	mpid=$!
+	echo "$mpid" >"$WORKDIR/$name.mac.pid"
+	sleep 1
+	kill -0 "$mpid" 2>/dev/null || {
+		echo "ERROR: $name daemon for $iface exited — is $iface already in use? (ifconfig $iface; pgrep -fl $iface)"
+		exit 1
+	}
 
-  psk_args=(); [ "$psk" = "yes" ] && psk_args=(preshared-key "$WORKDIR/psk.b64")
-  $SUDO wg set "$iface" private-key "$WORKDIR/$name.mac.key" listen-port "$port" \
-      peer "$vpspub" "${psk_args[@]}" endpoint "$VPS_HOST:$port" allowed-ips "$pip/32"
-  $SUDO ifconfig "$iface" "$mip" "$pip"
-  echo "  $name: $iface=$mip -> $VPS_HOST:$port (peer $pip)"
+	psk_args=()
+	[ "$psk" = "yes" ] && psk_args=(preshared-key "$WORKDIR/psk.b64")
+	$SUDO wg set "$iface" private-key "$WORKDIR/$name.mac.key" listen-port "$port" \
+		peer "$vpspub" "${psk_args[@]}" endpoint "$VPS_HOST:$port" allowed-ips "$pip/32"
+	$SUDO ifconfig "$iface" "$mip" "$pip"
+	echo "  $name: $iface=$mip -> $VPS_HOST:$port (peer $pip)"
 done
 
 echo "==> [7/7] Forcing first handshakes"
+# Two packets with a generous budget: the FIRST has to trigger the handshake and
+# ride a slow real-network RTT, so a single -c 1 -t 2 probe times out marginally
+# (it was the PSK tunnel that lost the race, not a broken PSK). -c 2 -t 5 passes
+# if EITHER reply comes back — the handshake itself always completes here.
 for row in "${ROWS[@]}"; do
-  read -r name _ _ _ pip _ _ <<<"$row"
-  ping -c 1 -t 2 "$pip" >/dev/null 2>&1 && echo "  $name: handshake OK ($pip)" \
-    || echo "  $name: ping failed — see $WORKDIR/$name.mac.log"
+	read -r name _ _ _ pip _ _ <<<"$row"
+	ping -c 2 -t 5 "$pip" >/dev/null 2>&1 && echo "  $name: handshake OK ($pip)" ||
+		echo "  $name: ping failed — see $WORKDIR/$name.mac.log"
 done
 
 echo
