@@ -29,8 +29,19 @@ ROWS=(
   "pq       utun22  utun32   51822    51832      10.13.2.1    10.13.2.2    pq       no"
 )
 
+INTERFACES=(utun20 utun21 utun22 utun30 utun31 utun32)
+
 require_root() {
   if [ "$(id -u)" -ne 0 ]; then echo "Run with sudo." >&2; exit 1; fi
+}
+
+# Kill ANY boringtun bound to our demo interfaces — including stale daemons from
+# a previous run that the pid-file teardown can't see. macOS frees the utun once
+# its owning process dies, so this also clears the interface numbers for reuse.
+kill_iface_daemons() {
+  for ifc in "${INTERFACES[@]}"; do
+    pkill -f "boringtun.* $ifc( |\$)" 2>/dev/null || true
+  done
 }
 
 build_binaries() {
@@ -54,6 +65,9 @@ mlkem_psk() {
 
 up() {
   require_root
+  echo "--- Clearing any stale boringtun on $WORKDIR interfaces ---"
+  kill_iface_daemons
+  sleep 1
   build_binaries
   mlkem_psk
 
@@ -70,11 +84,14 @@ up() {
     # the orchestrator forces handshakes by re-adding THIS peer:
     echo "$ppub" >"$WORKDIR/$name.peerpub"
 
-    # daemons
+    # daemons (verify each actually claimed its interface — a silent exit here
+    # means the utun number was taken, which is exactly how the PSK tunnel broke)
     WG_LOG_LEVEL=debug "$bin" "$mif" --foreground --disable-drop-privileges 2>"$WORKDIR/$name.mac.log" &
-    echo $! >"$WORKDIR/$name.mac.pid"; sleep 1
+    mpid=$!; echo "$mpid" >"$WORKDIR/$name.mac.pid"; sleep 1
+    kill -0 "$mpid" 2>/dev/null || { echo "ERROR: $name daemon for $mif exited — is $mif already in use? (ifconfig $mif; pgrep -fl $mif)"; exit 1; }
     WG_LOG_LEVEL=debug "$bin" "$pif" --foreground --disable-drop-privileges 2>"$WORKDIR/$name.peer.log" &
-    echo $! >"$WORKDIR/$name.peer.pid"; sleep 1
+    ppid=$!; echo "$ppid" >"$WORKDIR/$name.peer.pid"; sleep 1
+    kill -0 "$ppid" 2>/dev/null || { echo "ERROR: $name daemon for $pif exited — is $pif already in use? (ifconfig $pif; pgrep -fl $pif)"; exit 1; }
 
     # config (PSK only on the psk variant)
     psk_args=(); [ "$psk" = "yes" ] && psk_args=(preshared-key "$WORKDIR/psk.b64")
@@ -110,6 +127,8 @@ down() {
     kill "$(cat "$f")" 2>/dev/null || true
     rm -f "$f"
   done
+  # also clear any stale daemons not tracked by a pid file
+  kill_iface_daemons
   for row in "${ROWS[@]}"; do
     read -r _ mif pif _ _ _ _ _ _ <<<"$row"
     ifconfig "$mif" down 2>/dev/null || true

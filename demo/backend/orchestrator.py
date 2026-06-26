@@ -14,6 +14,7 @@ only "live" action low-risk. See ``docs/superpowers/specs`` for the rationale.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import subprocess
@@ -35,7 +36,15 @@ class Orchestrator:
     # --- low-level command helpers -------------------------------------------
     def _run(self, args: list[str], *, sudo: bool = False, timeout: float = 6.0):
         cmd = (["sudo"] if (sudo and self.s.use_sudo) else []) + args
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        # Never raise: a slow/failed command (e.g. a ping that gets no reply)
+        # must degrade gracefully, not 500 the endpoint mid-demo.
+        try:
+            return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            out = exc.stdout if isinstance(exc.stdout, str) else ""
+            return subprocess.CompletedProcess(cmd, 124, stdout=out, stderr="timeout")
+        except (OSError, subprocess.SubprocessError) as exc:
+            return subprocess.CompletedProcess(cmd, 127, stdout="", stderr=str(exc))
 
     def _peer_pubkey(self, v: Variant) -> str | None:
         """Read the peer public key stashed by prestage_mac.sh."""
@@ -58,7 +67,7 @@ class Orchestrator:
         if not peerpub:
             # Without the peer key we can't re-add; fall back to just pinging,
             # which still handshakes if the session has expired.
-            self._run(["ping", "-c", "1", v.peer_ip], timeout=4.0)
+            self._run(["ping", "-c", "1", "-t", "2", v.peer_ip], timeout=4.0)
             return
 
         endpoint = v.endpoint(self.s)
@@ -72,7 +81,7 @@ class Orchestrator:
             add += ["preshared-key", os.path.join(self.s.workdir, "psk.b64")]
         self._run(add, sudo=True)
         # 3. trigger: one packet into the tunnel kicks off the handshake
-        self._run(["ping", "-c", "1", v.peer_ip], timeout=4.0)
+        self._run(["ping", "-c", "1", "-t", "2", v.peer_ip], timeout=4.0)
 
     # --- the headline action: connect + live capture --------------------------
     def connect_and_capture(self, v: Variant) -> dict:
@@ -86,7 +95,10 @@ class Orchestrator:
         t = threading.Thread(target=_cap, daemon=True)
         t.start()
         time.sleep(CAPTURE_WARMUP_S)        # let tcpdump attach
-        self.force_handshake(v)             # provoke init + response
+        try:
+            self.force_handshake(v)         # provoke init + response
+        except Exception as exc:            # belt-and-suspenders: never 500
+            logging.warning("force_handshake(%s) failed: %s", v.key, exc)
         t.join(timeout=10.0)
 
         cap = result.get("cap")
@@ -132,7 +144,7 @@ class Orchestrator:
         return self._run(["ifconfig", v.iface]).returncode == 0
 
     def _peer_reachable(self, v: Variant) -> bool:
-        return self._run(["ping", "-c", "1", v.peer_ip], timeout=4.0).returncode == 0
+        return self._run(["ping", "-c", "1", "-t", "2", v.peer_ip], timeout=4.0).returncode == 0
 
     def status(self) -> dict:
         variants = {}

@@ -32,6 +32,10 @@ provision() {
   if command -v apt-get >/dev/null; then
     sudo apt-get update -y
     sudo apt-get install -y wireguard-tools python3 curl build-essential pkg-config
+  elif command -v dnf >/dev/null; then
+    sudo dnf update -y
+    sudo dnf groupinstall -y "Development Tools"
+    sudo dnf install -y wireguard-tools python3 curl pkgconfig
   fi
   if ! command -v cargo >/dev/null; then
     echo "--- Installing Rust ---"
@@ -62,6 +66,9 @@ mac_pub_for() {
 up() {
   echo "--- Bringing up VPS tunnels (responder) ---"
   : >"$WORK/vps_pubkeys"
+  echo "--- Clearing any stale boringtun daemons ---"
+  for ifc in wgv wgp wgq; do sudo pkill -f "boringtun.* $ifc( |\$)" 2>/dev/null || true; done
+  sleep 1
   for row in "${ROWS[@]}"; do
     read -r name iface port vip mip build psk <<<"$row"
     bin="$WORK/boringtun-$build"
@@ -74,7 +81,8 @@ up() {
     echo "$name $(cat "$WORK/$name.vps.pub")" >>"$WORK/vps_pubkeys"
 
     sudo "$bin" "$iface" --disable-drop-privileges 2>"$WORK/$name.vps.log" &
-    sleep 1
+    vpid=$!; sleep 1
+    kill -0 "$vpid" 2>/dev/null || { echo "ERROR: $name daemon for $iface exited — $iface already in use? (ip link show $iface)"; exit 1; }
 
     psk_args=(); [ "$psk" = "yes" ] && [ -f "$WORK/psk.b64" ] && psk_args=(preshared-key "$WORK/psk.b64")
     sudo wg set "$iface" private-key "$WORK/$name.vps.key" listen-port "$port" \
