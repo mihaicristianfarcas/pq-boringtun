@@ -46,12 +46,15 @@ kill_iface_daemons() {
 
 build_binaries() {
   echo "--- Building boringtun (vanilla + pq) and pq-psk-tool ---"
-  cargo build -p boringtun-cli --manifest-path "$PROJECT_ROOT/Cargo.toml" >/dev/null 2>&1
+  cargo build -p boringtun-cli --manifest-path "$PROJECT_ROOT/Cargo.toml"
   cp "$PROJECT_ROOT/target/debug/boringtun-cli" "$WORKDIR/boringtun-vanilla"
-  cargo build -p boringtun-cli --manifest-path "$PROJECT_ROOT/Cargo.toml" --features boringtun/pq >/dev/null 2>&1
+  cargo build -p boringtun-cli --manifest-path "$PROJECT_ROOT/Cargo.toml" --features boringtun/pq
   cp "$PROJECT_ROOT/target/debug/boringtun-cli" "$WORKDIR/boringtun-pq"
-  cargo build -p pq-psk-tool --manifest-path "$PROJECT_ROOT/Cargo.toml" >/dev/null 2>&1
+  cargo build -p pq-psk-tool --manifest-path "$PROJECT_ROOT/Cargo.toml"
   cp "$PROJECT_ROOT/target/debug/pq-psk-tool" "$WORKDIR/pq-psk-tool"
+  # This script runs as root, so cargo just root-owned target/. Hand it back to
+  # the invoking user so a later user-run build (e.g. prestage) still works.
+  [ -n "${SUDO_USER:-}" ] && chown -R "$SUDO_USER" "$PROJECT_ROOT/target" 2>/dev/null || true
 }
 
 mlkem_psk() {

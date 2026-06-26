@@ -40,6 +40,13 @@ if [ ! -w "$WORKDIR" ]; then
   $SUDO chown -R "$(id -u):$(id -g)" "$WORKDIR"
 fi
 
+# Likewise, a prior `sudo` cargo build can leave files inside target/ root-owned,
+# which breaks this user-run build (Permission denied writing .fingerprint).
+if [ -d "$PROJECT_ROOT/target" ] && [ -n "$(find "$PROJECT_ROOT/target" -user root -print -quit 2>/dev/null)" ]; then
+  echo "Reclaiming target/ (root-owned files from a prior sudo build)…"
+  $SUDO chown -R "$(id -u):$(id -g)" "$PROJECT_ROOT/target"
+fi
+
 # name  iface  port   mac_ip       peer_ip      build    psk
 ROWS=(
   "vanilla utun20 51820 10.13.0.1 10.13.0.2 vanilla no"
@@ -59,11 +66,11 @@ kill_iface_daemons() {
 remote() { ssh "$VPS_SSH" "PQ_SRC=$VPS_SRC DEMO_WORKDIR=$WORKDIR bash $VPS_SRC/demo/vps/setup.sh $*"; }
 
 echo "==> [1/7] Building Mac binaries"
-cargo build -p boringtun-cli --manifest-path "$PROJECT_ROOT/Cargo.toml" >/dev/null 2>&1
+cargo build -p boringtun-cli --manifest-path "$PROJECT_ROOT/Cargo.toml"
 cp "$PROJECT_ROOT/target/debug/boringtun-cli" "$WORKDIR/boringtun-vanilla"
-cargo build -p boringtun-cli --manifest-path "$PROJECT_ROOT/Cargo.toml" --features boringtun/pq >/dev/null 2>&1
+cargo build -p boringtun-cli --manifest-path "$PROJECT_ROOT/Cargo.toml" --features boringtun/pq
 cp "$PROJECT_ROOT/target/debug/boringtun-cli" "$WORKDIR/boringtun-pq"
-cargo build -p pq-psk-tool --manifest-path "$PROJECT_ROOT/Cargo.toml" >/dev/null 2>&1
+cargo build -p pq-psk-tool --manifest-path "$PROJECT_ROOT/Cargo.toml"
 cp "$PROJECT_ROOT/target/debug/pq-psk-tool" "$WORKDIR/pq-psk-tool"
 
 echo "==> [2/7] Syncing source to VPS and provisioning"
