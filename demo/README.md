@@ -53,8 +53,10 @@ USER ALL=(root) NOPASSWD: /usr/sbin/tcpdump, /usr/bin/wg, /sbin/ifconfig, /sbin/
 ## Run — headline (VPS) mode
 
 ```bash
-# 1. prep the VPS + all three tunnels (once, before the talk)
-DEMO_VPS_SSH=ubuntu@VPS_IP DEMO_VPS_HOST=VPS_IP sudo -E demo/scripts/prestage_mac.sh
+# 1. prep the VPS + all three tunnels (once, before the talk).
+#    Run as your NORMAL user (not sudo) so ssh uses your keys; it elevates the
+#    local tunnel commands with sudo and prompts for your password once.
+DEMO_VPS_SSH=USER@VPS_IP DEMO_VPS_HOST=VPS_IP demo/scripts/prestage_mac.sh
 
 # 2. confirm everything is up
 demo/scripts/smoke_test.sh
