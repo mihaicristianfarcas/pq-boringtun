@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import re
 import subprocess
-import time
 from dataclasses import dataclass
 
 # tcpdump (BSD/macOS) prints UDP records ending in e.g. "UDP, length 1332".
 _LENGTH_RE = re.compile(r"\blength\s+(\d+)\b")
+# ...and a leading wall-clock timestamp, e.g. "12:00:00.012002 IP ...".
+_TIME_RE = re.compile(r"^\s*(\d{1,2}):(\d{2}):(\d{2}(?:\.\d+)?)")
+_SECONDS_PER_DAY = 24 * 3600
 
 
 def parse_udp_lengths(tcpdump_output: str) -> list[int]:
@@ -35,13 +37,46 @@ def parse_udp_lengths(tcpdump_output: str) -> list[int]:
     return lengths
 
 
+def parse_udp_timestamps(tcpdump_output: str) -> list[float]:
+    """Extract each UDP packet's wall-clock time, in seconds-of-day, in order.
+
+    Mirrors :func:`parse_udp_lengths` (same UDP-only filtering, same order), so
+    ``timestamps[i]`` lines up with ``lengths[i]``. From tcpdump's default
+    ``HH:MM:SS.ffffff`` prefix; non-UDP and untimestamped lines are skipped.
+    """
+    times: list[float] = []
+    for line in tcpdump_output.splitlines():
+        if "UDP" not in line and "udp" not in line:
+            continue
+        m = _TIME_RE.match(line)
+        if m:
+            h, minute, sec = int(m.group(1)), int(m.group(2)), float(m.group(3))
+            times.append(h * 3600 + minute * 60 + sec)
+    return times
+
+
+def handshake_delta_ms(tcpdump_output: str) -> float | None:
+    """Milliseconds between the first two captured packets (init -> response).
+
+    This is the real on-the-wire handshake latency, independent of how long
+    tcpdump took to attach. ``None`` if fewer than two packets were captured.
+    """
+    times = parse_udp_timestamps(tcpdump_output)
+    if len(times) < 2:
+        return None
+    delta = times[1] - times[0]
+    if delta < 0:  # the two packets straddled midnight; unwrap the day rollover
+        delta += _SECONDS_PER_DAY
+    return round(delta * 1000.0, 2)
+
+
 @dataclass
 class HandshakeCapture:
     """Result of capturing one handshake exchange."""
 
     init_size: int | None       # first packet (initiation), bytes
     resp_size: int | None       # second packet (response), bytes
-    elapsed_ms: float | None    # wall-clock from first to second packet
+    elapsed_ms: float | None    # ms between init and response = real handshake RTT
     raw: str                    # raw tcpdump text, for debugging
     from_fallback: bool = False # True if live capture missed and we used defaults
 
@@ -73,8 +108,10 @@ def capture_handshake(
     cmd: list[str] = []
     if use_sudo:
         cmd += ["sudo"]
-    # -l line-buffered, -n no name resolution, -t no timestamp prefix? we keep
-    # timestamps off and time it ourselves for portability. -q quiet protocol.
+    # -n no name resolution, -q quiet protocol, -l line-buffered. We deliberately
+    # KEEP tcpdump's default timestamp prefix: the reported handshake time is the
+    # delta between the init and response packets (handshake_delta_ms), which is
+    # the real on-wire latency, free of however long tcpdump took to attach.
     cmd += [
         "tcpdump",
         "-i", iface,
@@ -85,7 +122,6 @@ def capture_handshake(
         f"udp port {port}",
     ]
 
-    start = time.monotonic()
     try:
         proc = subprocess.run(
             cmd,
@@ -98,7 +134,6 @@ def capture_handshake(
         out = (exc.stdout or b"").decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
 
     lengths = parse_udp_lengths(out)
-    elapsed_ms = (time.monotonic() - start) * 1000.0 if lengths else None
 
     init_size = lengths[0] if len(lengths) >= 1 else None
     resp_size = lengths[1] if len(lengths) >= 2 else None
@@ -106,6 +141,6 @@ def capture_handshake(
     return HandshakeCapture(
         init_size=init_size,
         resp_size=resp_size,
-        elapsed_ms=round(elapsed_ms, 2) if elapsed_ms is not None else None,
+        elapsed_ms=handshake_delta_ms(out),
         raw=out,
     )
