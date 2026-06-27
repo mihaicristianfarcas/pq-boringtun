@@ -158,6 +158,7 @@ async function onConnect() {
   $("capture-note").textContent = "Forcing a fresh handshake and capturing it…";
   try {
     const r = await jsonFetch(`/api/connect/${key}`, { method: "POST" });
+    if (state.active !== key) return;   // switched tabs mid-capture: drop stale result
     renderSizes(r.init_size, r.resp_size);
     $("m-live").textContent =
       r.handshake_ms != null ? `${r.handshake_ms.toFixed(1)} ms` : "n/a";
@@ -202,6 +203,7 @@ async function onSend() {
     if (file) fd.append("file", file);
     else fd.append("text", secret);
     const r = await jsonFetch(`/api/transfer/${key}`, { method: "POST", body: fd });
+    if (state.active !== key) return;   // switched tabs mid-transfer: drop stale result
     renderTransfer(r);
   } catch (e) {
     note(out, `Transfer failed: ${e.message}`);

@@ -138,10 +138,11 @@ for row in "${ROWS[@]}"; do
 	vpspub=$(awk -v n="$name" '$1==n{print $2}' "$WORKDIR/vps_pubkeys")
 	echo "$vpspub" >"$WORKDIR/$name.peerpub" # orchestrator uses this to re-handshake
 
-	# --foreground logs to STDOUT, so redirect BOTH streams into the log file or
-	# the handshake/keepalive spam floods the terminal. info level = startup +
-	# timeouts/errors only; set WG_LOG_LEVEL=debug to get the full trace back.
-	$SUDO env WG_LOG_LEVEL="${WG_LOG_LEVEL:-info}" "$bin" "$iface" --foreground --disable-drop-privileges >"$WORKDIR/$name.mac.log" 2>&1 &
+	# --foreground logs to STDOUT, so redirect BOTH streams into the log file —
+	# that keeps the terminal clean regardless of level. debug so the UI's live
+	# handshake-log strip has events to tail (it parses the per-tunnel .mac.log);
+	# set WG_LOG_LEVEL=info to quiet the files if you don't need the strip.
+	$SUDO env WG_LOG_LEVEL="${WG_LOG_LEVEL:-debug}" "$bin" "$iface" --foreground --disable-drop-privileges >"$WORKDIR/$name.mac.log" 2>&1 &
 	mpid=$!
 	echo "$mpid" >"$WORKDIR/$name.mac.pid"
 	sleep 1

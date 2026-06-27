@@ -50,7 +50,18 @@
       <p id="capture-note" class="note"></p>
     </section>
 
-    <!-- 2. Verdict ------------------------------------------------------------>
+    <!-- 2. Live handshake log ------------------------------------------------->
+    <section class="panel logstrip">
+      <div class="panel-head">
+        <h2>Live handshake log <span id="log-variant" class="muted"></span></h2>
+        <a id="receiver-link" class="reclink" href="#" target="_blank" rel="noopener">
+          Open receiver view ↗
+        </a>
+      </div>
+      <div id="log-feed" class="log-feed" aria-live="polite"></div>
+    </section>
+
+    <!-- 3. Verdict ------------------------------------------------------------>
     <section class="panel">
       <h2>Security verdict</h2>
       <p id="crypto" class="crypto num">—</p>
@@ -61,7 +72,7 @@
       <p id="verdict-note" class="note"></p>
     </section>
 
-    <!-- 3. Transfer ----------------------------------------------------------->
+    <!-- 4. Transfer ----------------------------------------------------------->
     <section class="panel">
       <h2>Transfer through the tunnel</h2>
       <div class="transfer-controls">
@@ -74,17 +85,6 @@
         <button id="send" class="btn">Send</button>
       </div>
       <div id="transfer-result" class="transfer-result"></div>
-    </section>
-
-    <!-- 4. Live handshake log ------------------------------------------------->
-    <section class="panel logstrip">
-      <div class="panel-head">
-        <h2>Live handshake log <span id="log-variant" class="muted"></span></h2>
-        <a id="receiver-link" class="reclink" href="#" target="_blank" rel="noopener">
-          Open receiver view ↗
-        </a>
-      </div>
-      <div id="log-feed" class="log-feed" aria-live="polite"></div>
     </section>
 
     <footer class="foot muted">

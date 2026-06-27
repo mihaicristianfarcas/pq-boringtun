@@ -31,6 +31,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 MAX_BYTES = 16 * 1024 * 1024  # 16 MiB cap — demo payloads are tiny
 TEXT_PREVIEW_CAP = 2000       # chars of a text payload surfaced to the UI
 
+# /media echoes back attacker-controllable bytes, so never reflect the uploaded
+# Content-Type for active types (e.g. text/html -> stored XSS). Serve only this
+# safe set as-is; anything else is forced to a download as octet-stream.
+SAFE_MEDIA_TYPES = frozenset({
+    "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "text/plain",
+})
+
 # The local tunnel address a request arrived on tells us which variant it used.
 # Same peer IPs in --local loopback mode, so this mapping works there too.
 VARIANT_BY_IP = {
@@ -107,39 +114,52 @@ INDEX_HTML = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PQ-WireGuard — arrivals (VPS)</title>
 <style>
-  :root { color-scheme: light; }
-  body { font: 16px/1.5 -apple-system, system-ui, sans-serif; margin: 0;
-         background: #fff; color: #111; }
-  header { padding: 14px 20px; border-bottom: 2px solid #111; }
-  header b { font-size: 18px; }
-  header span { color: #666; }
-  main { padding: 20px; }
-  .wait { color: #888; font-style: italic; }
-  #latest { min-height: 200px; display: flex; flex-direction: column;
-            align-items: center; gap: 10px; }
-  #latest img { max-width: min(720px, 90vw); max-height: 60vh;
-                border: 1px solid #ddd; }
-  #latest .msg { font-size: 28px; font-weight: 600; text-align: center;
-                 white-space: pre-wrap; word-break: break-word; max-width: 90vw; }
-  .cap { color: #555; font-size: 14px; }
-  .cap .ok { color: #137333; font-weight: 600; }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
-       color: #666; border-bottom: 1px solid #eee; padding-bottom: 6px;
-       margin-top: 28px; }
-  .row { font-family: ui-monospace, Menlo, monospace; font-size: 13px;
-         padding: 4px 0; border-bottom: 1px dotted #eee; }
-  .row b { color: #111; }
-  .row .ok { color: #137333; }
-  .pill { display: inline-block; padding: 0 6px; border: 1px solid #111;
-          border-radius: 10px; font-size: 11px; }
+  /* Mirrors the Mac UI: minimal black-on-white, one green accent, 820px column */
+  :root {
+    --ink: #111; --muted: #666; --line: #ddd; --accent: #1E8449;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, system-ui, "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #fff; color: var(--ink);
+         font-family: var(--sans); font-size: 17px; line-height: 1.5; }
+  main { max-width: 820px; margin: 0 auto; padding: 32px 28px 64px; }
+  .top { display: flex; align-items: baseline; justify-content: space-between;
+         gap: 16px; border-bottom: 2px solid var(--ink); padding-bottom: 12px; }
+  h1 { font-size: 1.45rem; font-weight: 600; margin: 0; }
+  .muted { color: var(--muted); font-weight: 400; }
+  .tag { font-family: var(--mono); font-size: 0.8rem; color: var(--muted);
+         border: 1px solid var(--line); padding: 2px 8px; white-space: nowrap; }
+  .panel { border: 1px solid var(--line); padding: 20px 22px; margin-top: 22px; }
+  h2 { font-size: 1.05rem; font-weight: 600; margin: 0 0 12px; }
+  #latest { display: flex; flex-direction: column; align-items: center; gap: 10px;
+            min-height: 150px; justify-content: center; }
+  #latest img { max-width: 100%; max-height: 52vh; border: 1px solid var(--line); }
+  #latest .msg { font-size: 1.6rem; font-weight: 600; text-align: center;
+                 white-space: pre-wrap; word-break: break-word; }
+  .wait { color: var(--muted); font-style: italic; }
+  .cap { color: var(--muted); font-size: 0.9rem; font-family: var(--mono); }
+  .cap .ok { color: var(--accent); font-weight: 600; }
+  .row { font-family: var(--mono); font-size: 0.85rem; padding: 5px 0;
+         border-bottom: 1px dotted var(--line); }
+  .row .ok { color: var(--accent); }
+  .pill { display: inline-block; padding: 0 7px; border: 1px solid var(--ink);
+          border-radius: 10px; font-size: 0.75rem; }
 </style>
 </head><body>
-<header><b>Arrivals — remote receiver (VPS)</b>
-  <span>· what actually landed, via the encrypted tunnel</span></header>
 <main>
-  <div id="latest"><p class="wait">waiting for first transfer…</p></div>
-  <h2>Arrivals log</h2>
-  <div id="log"></div>
+  <header class="top">
+    <h1>Arrivals <span class="muted">— remote receiver (VPS)</span></h1>
+    <div class="tag">via the encrypted tunnel</div>
+  </header>
+  <section class="panel">
+    <h2>Latest arrival</h2>
+    <div id="latest"><p class="wait">waiting for first transfer…</p></div>
+  </section>
+  <section class="panel">
+    <h2>Arrivals log</h2>
+    <div id="log"></div>
+  </section>
 </main>
 <script>
 const esc = s => String(s).replace(/[&<>"]/g, c =>
@@ -247,7 +267,17 @@ class Handler(BaseHTTPRequestHandler):
             if entry is None:
                 self.send_error(404, "not found")
                 return
-            self._send(200, entry["data"], entry["content_type"])
+            ctype = entry["content_type"]
+            # Harden the echo-back of attacker-controllable bytes (XSS): only the
+            # safe set keeps its type; everything else downloads as octet-stream.
+            extra = {
+                "X-Content-Type-Options": "nosniff",
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+            }
+            if ctype not in SAFE_MEDIA_TYPES:
+                ctype = "application/octet-stream"
+                extra["Content-Disposition"] = "attachment"
+            self._send(200, entry["data"], ctype, extra)
         else:
             self.send_error(404, "not found")
 

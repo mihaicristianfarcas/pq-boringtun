@@ -25,8 +25,9 @@ from capture import HandshakeCapture, capture_handshake
 from config import Settings, Variant
 
 # tcpdump needs a moment to attach to the interface before we trigger traffic.
-# Tuned at rehearsal; err on the generous side so we never miss the init packet.
-CAPTURE_WARMUP_S = 0.6
+# sudo + tcpdump startup on macOS can take ~1s; too short and we miss the init
+# packet (capture falls back, handshake time shows "n/a"). Err generous.
+CAPTURE_WARMUP_S = 1.0
 
 
 class Orchestrator:

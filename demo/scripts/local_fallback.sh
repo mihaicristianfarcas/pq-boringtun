@@ -94,12 +94,12 @@ up() {
     # daemons (verify each actually claimed its interface — a silent exit here
     # means the utun number was taken, which is exactly how the PSK tunnel broke).
     # --foreground logs to STDOUT: redirect BOTH streams so the trace lands in the
-    # log file, not the terminal. info = startup + timeouts/errors; override with
-    # WG_LOG_LEVEL=debug for the full per-packet trace.
-    WG_LOG_LEVEL="${WG_LOG_LEVEL:-info}" "$bin" "$mif" --foreground --disable-drop-privileges >"$WORKDIR/$name.mac.log" 2>&1 &
+    # log file, not the terminal. debug so the UI live-log strip has events to
+    # tail; set WG_LOG_LEVEL=info to quiet the files if you don't need the strip.
+    WG_LOG_LEVEL="${WG_LOG_LEVEL:-debug}" "$bin" "$mif" --foreground --disable-drop-privileges >"$WORKDIR/$name.mac.log" 2>&1 &
     mpid=$!; echo "$mpid" >"$WORKDIR/$name.mac.pid"; sleep 1
     kill -0 "$mpid" 2>/dev/null || { echo "ERROR: $name daemon for $mif exited — is $mif already in use? (ifconfig $mif; pgrep -fl $mif)"; exit 1; }
-    WG_LOG_LEVEL="${WG_LOG_LEVEL:-info}" "$bin" "$pif" --foreground --disable-drop-privileges >"$WORKDIR/$name.peer.log" 2>&1 &
+    WG_LOG_LEVEL="${WG_LOG_LEVEL:-debug}" "$bin" "$pif" --foreground --disable-drop-privileges >"$WORKDIR/$name.peer.log" 2>&1 &
     ppid=$!; echo "$ppid" >"$WORKDIR/$name.peer.pid"; sleep 1
     kill -0 "$ppid" 2>/dev/null || { echo "ERROR: $name daemon for $pif exited — is $pif already in use? (ifconfig $pif; pgrep -fl $pif)"; exit 1; }
 
