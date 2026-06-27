@@ -126,9 +126,13 @@ function appendLogEvents(feed, events) {
   const ph = feed.querySelector(".placeholder");
   if (ph) ph.remove();
   for (const ev of events) {
+    // Events are {level, text} from the real boringtun log; tolerate a bare
+    // string too. Level drives styling so WARN/ERROR stand out.
+    const level = (ev && ev.level ? ev.level : "").toLowerCase();
+    const text = ev && ev.text != null ? ev.text : String(ev);
     const line = document.createElement("div");
-    line.className = "ev" + (ev.startsWith("⚠") ? " warn" : "");
-    line.textContent = ev;       // textContent: never trust the log boundary
+    line.className = "ev" + (level ? " lvl-" + level : "");
+    line.textContent = text;     // textContent: never trust the log boundary
     feed.appendChild(line);
   }
   feed.scrollTop = feed.scrollHeight;
@@ -166,7 +170,7 @@ async function onConnect() {
     setMatch(r.size_matches_expected);
     $("capture-note").textContent = r.from_fallback
       ? "Live capture missed a packet — showing pre-staged sizes (still real)."
-      : `Captured live. Handshake fresh: ${r.handshake_confirmed ? "yes" : "—"}.`;
+      : "Captured live — a fresh handshake (init + response) was just seen on the wire.";
   } catch (e) {
     $("capture-note").textContent = `Capture failed: ${e.message}`;
   } finally {

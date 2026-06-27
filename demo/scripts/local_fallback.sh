@@ -44,6 +44,51 @@ kill_iface_daemons() {
   done
 }
 
+# Does the interface still exist?
+iface_present() { ifconfig "$1" >/dev/null 2>&1; }
+
+# Wait up to ~5s for an interface to disappear after its daemon dies — macOS
+# frees the utun a beat *after* the owning process exits, so a flat `sleep 1`
+# raced and the next bring-up claimed an interface still in use.
+wait_iface_gone() {
+  local ifc="$1" i
+  for i in $(seq 1 25); do
+    iface_present "$ifc" || return 0
+    sleep 0.2
+  done
+  iface_present "$ifc" && return 1 || return 0
+}
+
+# Robust teardown: SIGTERM leftover daemons by interface, then WAIT until each
+# utun is actually released, escalating to SIGKILL for stragglers.
+clear_ifaces() {
+  kill_iface_daemons
+  local ifc
+  for ifc in "${INTERFACES[@]}"; do
+    if ! wait_iface_gone "$ifc"; then
+      pkill -9 -f "boringtun.* $ifc( |\$)" 2>/dev/null || true
+      wait_iface_gone "$ifc" || echo "  WARNING: could not clear $ifc (try: sudo pkill -9 -f $ifc)" >&2
+    fi
+  done
+}
+
+# Verify a just-started daemon actually claimed its interface — a silent exit
+# means the utun number was taken (exactly how the PSK tunnel once broke). On
+# failure, show the log tail + whoever is holding the interface, then bail.
+check_daemon() {  # label iface pid logfile
+  local label="$1" ifc="$2" pid="$3" log="$4"
+  kill -0 "$pid" 2>/dev/null && return 0
+  echo "ERROR: $label daemon for $ifc exited on start." >&2
+  echo "  --- last lines of $log ---" >&2
+  tail -n 8 "$log" 2>/dev/null | sed 's/^/  /' >&2 || true
+  if iface_present "$ifc"; then
+    echo "  $ifc still exists — another process is holding it:" >&2
+    pgrep -fl "$ifc" 2>/dev/null | sed 's/^/  /' >&2 || true
+    echo "  clear it with '$0 down' (or: sudo pkill -9 -f $ifc), then retry." >&2
+  fi
+  exit 1
+}
+
 # Atomic binary install — rename over the target instead of overwriting in place,
 # so a surviving daemon never trips "Text file busy" on the rebuild.
 install_bin() { cp "$1" "$2.new" && mv -f "$2.new" "$2"; }
@@ -73,8 +118,7 @@ mlkem_psk() {
 up() {
   require_root
   echo "--- Clearing any stale boringtun on $WORKDIR interfaces ---"
-  kill_iface_daemons
-  sleep 1
+  clear_ifaces   # kill leftovers AND wait until each utun is released
   build_binaries
   mlkem_psk
 
@@ -91,17 +135,17 @@ up() {
     # the orchestrator forces handshakes by re-adding THIS peer:
     echo "$ppub" >"$WORKDIR/$name.peerpub"
 
-    # daemons (verify each actually claimed its interface — a silent exit here
-    # means the utun number was taken, which is exactly how the PSK tunnel broke).
-    # --foreground logs to STDOUT: redirect BOTH streams so the trace lands in the
-    # log file, not the terminal. debug so the UI live-log strip has events to
-    # tail; set WG_LOG_LEVEL=info to quiet the files if you don't need the strip.
+    # daemons (check_daemon verifies each actually claimed its interface — a
+    # silent exit means the utun number was taken). --foreground logs to STDOUT:
+    # redirect BOTH streams so the trace lands in the log file, not the terminal.
+    # debug so the UI live-log strip has events to tail; set WG_LOG_LEVEL=info to
+    # quiet the files if you don't need the strip.
     WG_LOG_LEVEL="${WG_LOG_LEVEL:-debug}" "$bin" "$mif" --foreground --disable-drop-privileges >"$WORKDIR/$name.mac.log" 2>&1 &
     mpid=$!; echo "$mpid" >"$WORKDIR/$name.mac.pid"; sleep 1
-    kill -0 "$mpid" 2>/dev/null || { echo "ERROR: $name daemon for $mif exited — is $mif already in use? (ifconfig $mif; pgrep -fl $mif)"; exit 1; }
+    check_daemon "$name(mac)" "$mif" "$mpid" "$WORKDIR/$name.mac.log"
     WG_LOG_LEVEL="${WG_LOG_LEVEL:-debug}" "$bin" "$pif" --foreground --disable-drop-privileges >"$WORKDIR/$name.peer.log" 2>&1 &
     ppid=$!; echo "$ppid" >"$WORKDIR/$name.peer.pid"; sleep 1
-    kill -0 "$ppid" 2>/dev/null || { echo "ERROR: $name daemon for $pif exited — is $pif already in use? (ifconfig $pif; pgrep -fl $pif)"; exit 1; }
+    check_daemon "$name(peer)" "$pif" "$ppid" "$WORKDIR/$name.peer.log"
 
     # config (PSK only on the psk variant)
     psk_args=(); [ "$psk" = "yes" ] && psk_args=(preshared-key "$WORKDIR/psk.b64")
@@ -116,6 +160,7 @@ up() {
   done
 
   echo "--- Starting receiver on 0.0.0.0:$RECEIVER_PORT ---"
+  pkill -f "receiver.py" 2>/dev/null || true  # drop a stale receiver holding the port
   python3 "$PROJECT_ROOT/demo/vps/receiver.py" --port "$RECEIVER_PORT" \
       >"$WORKDIR/receiver.log" 2>&1 &
   echo $! >"$WORKDIR/receiver.pid"
@@ -133,13 +178,15 @@ up() {
 down() {
   require_root
   echo "--- Tearing down ---"
+  pkill -f "receiver.py" 2>/dev/null || true
   for f in "$WORKDIR"/*.pid; do
     [ -e "$f" ] || continue
     kill "$(cat "$f")" 2>/dev/null || true
     rm -f "$f"
   done
-  # also clear any stale daemons not tracked by a pid file
-  kill_iface_daemons
+  # also clear any stale daemons not tracked by a pid file, and WAIT for macOS to
+  # release each utun so an immediate re-`up` doesn't hit "interface in use".
+  clear_ifaces
   for row in "${ROWS[@]}"; do
     read -r _ mif pif _ _ _ _ _ _ <<<"$row"
     ifconfig "$mif" down 2>/dev/null || true

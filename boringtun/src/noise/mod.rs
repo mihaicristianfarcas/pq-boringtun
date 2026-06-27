@@ -568,6 +568,12 @@ impl Tunn {
 
         match result {
             Ok(packet) => {
+                // The pq build sends a different, ML-KEM-bearing initiation; log it
+                // under its own name so the live strip can tell the two apart (the
+                // receive side already logs "pq_handshake_response" distinctly).
+                #[cfg(feature = "pq")]
+                tracing::debug!("Sending pq_handshake_initiation");
+                #[cfg(not(feature = "pq"))]
                 tracing::debug!("Sending handshake_initiation");
 
                 if starting_new_handshake {

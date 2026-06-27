@@ -202,8 +202,9 @@ td.num { text-align: right; width: 90px; white-space: nowrap; }
   height: 132px;
   overflow-y: auto;
 }
-.log-feed .ev { white-space: pre-wrap; word-break: break-word; }
-.log-feed .ev.warn { font-weight: 600; }   /* timeouts/errors stand out, no colour */
+.log-feed .ev { white-space: pre-wrap; word-break: break-word; color: var(--ink); }
+.log-feed .ev.lvl-warn,
+.log-feed .ev.lvl-error { font-weight: 600; }   /* timeouts/errors stand out, no colour */
 .log-feed .placeholder { color: var(--muted); font-style: italic; }
 
 .note { color: var(--muted); font-size: 0.9rem; margin: 12px 0 0; }

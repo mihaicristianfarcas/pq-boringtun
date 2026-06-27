@@ -121,7 +121,6 @@ class Orchestrator:
             "size_matches_expected": (init == v.init_size and resp == v.resp_size),
             "handshake_ms": cap.elapsed_ms,
             "from_fallback": from_fallback,
-            "handshake_confirmed": self._handshake_fresh(v),
             "thesis_us": v.thesis_us,
         }
 
@@ -136,10 +135,6 @@ class Orchestrator:
             if m:
                 best = max(best, int(m.group(1)))
         return best
-
-    def _handshake_fresh(self, v: Variant, within_s: int = 30) -> bool:
-        epoch = self._latest_handshake_epoch(v)
-        return epoch > 0 and (time.time() - epoch) < within_s
 
     def _iface_up(self, v: Variant) -> bool:
         return self._run(["ifconfig", v.iface]).returncode == 0
