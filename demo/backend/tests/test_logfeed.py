@@ -53,6 +53,25 @@ WARN_LOG = """\
     at boringtun/src/noise/timers.rs:234
 """
 
+# What boringtun-cli --foreground ACTUALLY writes to the log file: tracing's
+# .pretty() with ANSI colour left on (only the background path disables it).
+# Captured verbatim from /tmp/pq-demo/pq.mac.log.
+ANSI_LOG = (
+    "  \x1b[2m2026-06-27T06:58:17.950223Z\x1b[0m \x1b[34mDEBUG\x1b[0m "
+    "\x1b[1;34mboringtun::noise\x1b[0m\x1b[34m: \x1b[34mSending handshake_initiation\x1b[0m\n"
+    "    \x1b[2;3mat\x1b[0m boringtun/src/noise/mod.rs:571\n"
+    "\n"
+    "  \x1b[2m2026-06-27T06:58:18.104465Z\x1b[0m \x1b[34mDEBUG\x1b[0m "
+    "\x1b[1;34mboringtun::noise\x1b[0m\x1b[34m: \x1b[34mReceived pq_handshake_response, "
+    "\x1b[1;34mlocal_idx\x1b[0m\x1b[34m: 2775925505\x1b[0m\n"
+    "    \x1b[2;3mat\x1b[0m boringtun/src/noise/mod.rs:483\n"
+    "  \x1b[2m2026-06-27T06:58:18.116920Z\x1b[0m \x1b[34mDEBUG\x1b[0m "
+    "\x1b[1;34mboringtun::noise\x1b[0m\x1b[34m: \x1b[34mNew session, "
+    "\x1b[1;34msession\x1b[0m\x1b[34m: 2775925505\x1b[0m\n"
+    "  \x1b[2m2026-06-27T06:58:18.117027Z\x1b[0m \x1b[34mDEBUG\x1b[0m "
+    "\x1b[1;34mboringtun::noise\x1b[0m\x1b[34m: \x1b[34mSending keepalive\x1b[0m\n"
+)
+
 
 class TestParseHandshakeEvents(unittest.TestCase):
     def test_vanilla_lifecycle_only(self):
@@ -72,6 +91,14 @@ class TestParseHandshakeEvents(unittest.TestCase):
     def test_warnings_pass_through(self):
         self.assertEqual(parse_handshake_events(WARN_LOG),
                          ["⚠ HANDSHAKE(REKEY_TIMEOUT)"])
+
+    def test_strips_ansi_colour_codes(self):
+        # The real on-disk format is ANSI-coloured; the parser must see through it.
+        self.assertEqual(
+            parse_handshake_events(ANSI_LOG),
+            ["→ handshake_initiation", "← pq_handshake_response",
+             "✓ new session", "keepalive"],
+        )
 
     def test_empty(self):
         self.assertEqual(parse_handshake_events(""), [])

@@ -54,9 +54,6 @@
     <section class="panel logstrip">
       <div class="panel-head">
         <h2>Live handshake log <span id="log-variant" class="muted"></span></h2>
-        <a id="receiver-link" class="reclink" href="#" target="_blank" rel="noopener">
-          Open receiver view ↗
-        </a>
       </div>
       <div id="log-feed" class="log-feed" aria-live="polite"></div>
     </section>
@@ -74,7 +71,10 @@
 
     <!-- 4. Transfer ----------------------------------------------------------->
     <section class="panel">
-      <h2>Transfer through the tunnel</h2>
+      <div class="panel-head">
+        <h2>Transfer through the tunnel</h2>
+        <a id="receiver-link" class="reclink" href="#" target="_blank" rel="noopener">Open receiver view ↗</a>
+      </div>
       <div class="transfer-controls">
         <label class="file">
           <input type="file" id="file" accept="image/*" />

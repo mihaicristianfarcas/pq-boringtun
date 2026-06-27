@@ -16,6 +16,11 @@ from __future__ import annotations
 import os
 import re
 
+# boringtun-cli --foreground writes ANSI-coloured logs (only the background path
+# disables colour), so the on-disk lines are full of "\x1b[34m…\x1b[0m". Strip
+# those SGR escapes before matching or the level/target regex never fires.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
 # After the timestamp: "<LEVEL> <target>: <message>". The target is non-space
 # (e.g. boringtun::noise); backtracking lands ":" on the target/message split.
 _EVENT_RE = re.compile(r"\b(DEBUG|INFO|WARN|ERROR)\s+\S+:\s+(.+?)\s*$")
@@ -48,6 +53,7 @@ def parse_handshake_events(raw: str) -> list[str]:
     """Extract clean handshake-event labels from raw boringtun log text."""
     events: list[str] = []
     for line in raw.splitlines():
+        line = _ANSI_RE.sub("", line)         # drop colour codes first
         if line.lstrip().startswith("at "):  # "    at file:line" continuation
             continue
         m = _EVENT_RE.search(line)
