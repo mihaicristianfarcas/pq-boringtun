@@ -16,6 +16,13 @@ _LENGTH_RE = re.compile(r"\blength\s+(\d+)\b")
 _TIME_RE = re.compile(r"^\s*(\d{1,2}):(\d{2}):(\d{2}(?:\.\d+)?)")
 _SECONDS_PER_DAY = 24 * 3600
 
+# WireGuard's message_type is the first byte of the UDP payload (udp[8]):
+# 1/2 = classic handshake init/response, 5/6 = our PQ init/response, 4 = data.
+# Capturing handshake types ONLY means a keepalive/data packet emitted during
+# the capture warmup can never be mistaken for the handshake (which showed up as
+# bogus 84/96 B "sizes"); tcpdump waits for the real init/response instead.
+_HANDSHAKE_BPF = "(udp[8]==1 or udp[8]==2 or udp[8]==5 or udp[8]==6)"
+
 
 def parse_udp_lengths(tcpdump_output: str) -> list[int]:
     """Extract UDP payload lengths, in capture order, from tcpdump text.
@@ -119,7 +126,7 @@ def capture_handshake(
         "-q",
         "-c", str(count),
         "-l",
-        f"udp port {port}",
+        f"udp port {port} and {_HANDSHAKE_BPF}",
     ]
 
     try:
