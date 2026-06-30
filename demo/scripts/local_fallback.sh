@@ -6,13 +6,11 @@
 # the only path you can rehearse without a VPS. Each variant is a pair of
 # boringtun interfaces on localhost (mirrors `pq-hybrid-test.sh compare`).
 #
-#   sudo ./local_fallback.sh up      # build, start tunnels + receiver
+#   sudo ./local_fallback.sh up      # build, start tunnels + receiver + UI
 #   sudo ./local_fallback.sh down    # tear everything down
 #
-# Then run the backend in local mode (NO sudo needed for the server itself if
-# you grant passwordless sudo for wg/tcpdump/ifconfig — see README):
-#
-#   python demo/backend/app.py --local
+# The backend is auto-started at the end of `up` (requires uv on PATH).
+# Set DEMO_AUTOSTART=0 to skip it and print the command instead.
 #
 set -euo pipefail
 
@@ -166,13 +164,40 @@ up() {
   echo $! >"$WORKDIR/receiver.pid"
 
   echo "--- Forcing first handshakes ---"
+  local all_ok=1
   for row in "${ROWS[@]}"; do
     read -r name _ _ _ _ _ pip _ _ <<<"$row"
     # -c 2 -t 5: first packet triggers the handshake, second confirms reachability
-    ping -c 2 -t 5 "$pip" >/dev/null 2>&1 && echo "  $name: handshake OK ($pip)" \
-      || echo "  $name: ping failed (check $WORKDIR/$name.mac.log)"
+    if ping -c 2 -t 5 "$pip" >/dev/null 2>&1; then
+      echo "  $name: handshake OK ($pip)"
+    else
+      echo "  $name: ping failed (check $WORKDIR/$name.mac.log)"
+      all_ok=0
+    fi
   done
-  echo "Local fallback up. Start the UI:  python demo/backend/app.py --local"
+
+  # --- start the UI (mirrors prestage_mac.sh) -----------------------------------
+  UI_CMD="cd demo/backend && uv run python app.py --local"
+  echo
+  if [ "$all_ok" = "1" ] && [ "${DEMO_AUTOSTART:-1}" != "0" ] && command -v uv >/dev/null 2>&1; then
+    echo "All three tunnels are up. Starting the UI on http://127.0.0.1:8000 …"
+    echo "  (Ctrl-C stops the UI only — tunnels stay up. Run '$0 down' to remove them.)"
+    echo
+    # Hand the terminal to uvicorn; its exit must NOT trip the ERR trap.
+    trap - ERR 2>/dev/null || true
+    cd "$PROJECT_ROOT/demo/backend"
+    exec uv run python app.py --local
+  fi
+
+  if [ "$all_ok" != "1" ]; then
+    echo "Some tunnels failed their first handshake — NOT auto-starting the UI."
+    echo "Check the logs above, then start it yourself once they're healthy:"
+  elif ! command -v uv >/dev/null 2>&1; then
+    echo "Local fallback up, but 'uv' is not on PATH — start the UI yourself:"
+  else
+    echo "Local fallback up (auto-start disabled via DEMO_AUTOSTART=0). Start the UI:"
+  fi
+  echo "  $UI_CMD"
 }
 
 down() {

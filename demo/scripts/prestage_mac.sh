@@ -155,7 +155,7 @@ install_bin "$PROJECT_ROOT/target/debug/pq-psk-tool" "$WORKDIR/pq-psk-tool"
 
 echo "==> [2/7] Syncing source to VPS and provisioning"
 ssh "$VPS_SSH" "sudo mkdir -p $VPS_SRC && sudo chown \$(id -u):\$(id -g) $VPS_SRC"
-rsync -az --delete --exclude target --exclude .git --exclude '.venv' --exclude '__pycache__' \
+rsync -az --delete --exclude thesis --exclude paper --exclude presentation --exclude target --exclude .git --exclude '.venv' --exclude '__pycache__' \
 	"$PROJECT_ROOT/" "$VPS_SSH:$VPS_SRC/"
 remote provision
 
@@ -163,7 +163,10 @@ echo "==> [3/7] Generating Mac keypairs"
 declare -A MACPUB
 for row in "${ROWS[@]}"; do
 	read -r name iface port mip pip build psk <<<"$row"
-	( umask 077; wg genkey >"$WORKDIR/$name.mac.key" ) # 0600 so wg doesn't warn
+	(
+		umask 077
+		wg genkey >"$WORKDIR/$name.mac.key"
+	) # 0600 so wg doesn't warn
 	MACPUB[$name]=$(wg pubkey <"$WORKDIR/$name.mac.key")
 done
 
