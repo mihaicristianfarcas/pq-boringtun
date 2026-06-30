@@ -1,11 +1,11 @@
-%==============================================================================
+
 %  Bachelor's Thesis Defense
 %  Hybrid Post-Quantum Key Exchange for WireGuard (X25519 + ML-KEM-768)
 %  Mihai-Cristian Farcas  --  UBB, 2026
 %
 %  Build:   tectonic presentation.tex
 %  Notes:   uncomment the \setbeameroption line below to print speaker notes
-%==============================================================================
+
 \documentclass[aspectratio=169,11pt]{beamer}
 
 % --- speaker notes (uncomment to interleave note pages) ----------------------
@@ -70,13 +70,13 @@
 \subtitle{Integrating ML-KEM into a Production Rust Userspace Implementation}
 \author[M.-C. Farca\c{s}]{Mihai-Cristian Farca\c{s}}
 \institute{Babe\c{s}--Bolyai University \\ Faculty of Mathematics and Computer Science}
-\date{Bachelor's Thesis Defense \quad\textbar\quad June 2026}
+\date{Bachelor's Thesis Defense \quad\textbar\quad July 2026}
 
 \begin{document}
 
-%==============================================================================
+
 % 1 -- TITLE
-%==============================================================================
+
 {\setbeamertemplate{footline}{}
 \begin{frame}[plain]
   \titlepage
@@ -87,23 +87,23 @@
 exchange by integrating NIST-standardised ML-KEM into BoringTun's handshake, and
 measures what it costs. Then move on.}
 
-%==============================================================================
+
 % ROADMAP
-%==============================================================================
+
 \begin{frame}{Roadmap}
   \begin{enumerate}
     \item The problem -- why WireGuard needs post-quantum key exchange
     \item Two approaches -- PSK-slot baseline \& full hybrid
-    \item The hybrid handshake, implementation \& security
+    \item The hybrid handshake, security \& implementation
     \item Evaluation \& conclusions -- then a live demo
   \end{enumerate}
 \end{frame}
 \note{Ten seconds. The problem, the two approaches, the hybrid design and
 implementation, evaluation -- then we switch to a live demo. Don't dwell.}
 
-%==============================================================================
+
 % 2 -- THE PROBLEM (motivation + why migration is hard)
-%==============================================================================
+
 \begin{frame}{The problem: a quantum clock, and a protocol that can't be changed}
   \begin{itemize}
     \item WireGuard's key exchange rests \alert{entirely on X25519} -- which
@@ -119,7 +119,7 @@ implementation, evaluation -- then we switch to a live demo. Don't dwell.}
     One fixed cipher suite, \textbf{no negotiation} -- a security feature (kills
     downgrade attacks), but \alert{no slot to drop a new algorithm into}. Two
     natural handles: the \textbf{PSK slot}, and the \textbf{Noise IK handshake}
-    itself. \emph{This thesis builds on both.}
+    itself.
   \end{block}
 \end{frame}
 \note{WireGuard replaced IPsec/OpenVPN -- in the kernel, every OS, deployed by
@@ -131,11 +131,10 @@ negotiation -- which is why it dodged TLS/IPsec downgrade bugs but leaves no slo
 to drop a new algorithm into. Two handles: the PSK slot and the Noise IK
 handshake. I built both.}
 
-%==============================================================================
-% 4 -- RESEARCH QUESTION + TWO APPROACHES
-%==============================================================================
+% 3 -- RESEARCH QUESTION + TWO APPROACHES
+
 \begin{frame}{Research question and two approaches}
-  \begin{block}{Research question}
+    \begin{block}{The question}
     Can WireGuard's handshake be extended with \textbf{hybrid post-quantum key
     exchange (X25519 + ML-KEM-768)} while preserving its security properties and
     staying viable on \textbf{resource-constrained hardware}?
@@ -162,8 +161,6 @@ handshake. I built both.}
     \end{column}
   \end{columns}
   \vfill
-  \centering\small\color{pqgray} To our knowledge, the first FIPS 203-compliant
-  \emph{hybrid} WireGuard on a production codebase.
 \end{frame}
 \note{Slow down here -- this is the framing. RQ on the slide. Two attacks.
 Approach A: minimal, out-of-band ML-KEM into the existing PSK slot, no protocol
@@ -171,29 +168,39 @@ change; built as a baseline to quantify what B buys. Approach B is the real
 contribution: ML-KEM inside the handshake, fresh keys per session, on BoringTun
 so it deploys in userspace.}
 
-%==============================================================================
-% 5 -- KEM vs DH + HYBRID IDEA
-%==============================================================================
-\begin{frame}{Just enough background: a KEM is not a Diffie--Hellman}
+% 4 -- PSK-SLOT BASELINE
+\begin{frame}{Backup -- the PSK-slot baseline}
   \centering
-  \includegraphics[width=\textwidth,height=0.6\textheight,keepaspectratio]{fig_kem_vs_dh}
-  \vfill
-  \begin{block}{Hybrid}
-    \small X25519 is a symmetric DH; ML-KEM \emph{encapsulates / decapsulates}
-    (asymmetric -- this shapes the handshake). The hybrid folds \emph{both}
-    secrets together via concatenate-then-KDF (NIST SP 800-56C; the TLS 1.3
-    pattern). \textbf{Secure if \emph{either} X25519 \emph{or} ML-KEM survives.}
-  \end{block}
+  \includegraphics[width=\textwidth,height=0.85\textheight,keepaspectratio]{fig_psk_handshake}
 \end{frame}
-\note{Mental-model shift, no lattice math. X25519 is a DH -- symmetric. ML-KEM is
-a KEM -- one side encapsulates a secret under the other's key, ships a ciphertext.
-That asymmetry shapes the handshake. Hybrid = fold both secrets in; the payoff is
-the bold line: safe as long as one primitive holds. ML-KEM is young, so I hedge
-with X25519.}
 
-%==============================================================================
+% 4.5 -- why ML-KEM-768
+\begin{frame}{Why ML-KEM-768, why hybrid}
+  \begin{itemize}
+    \item \textbf{ML-KEM-768:} The general-purpose default recommended by
+	   NIST/IETF; balances size vs security.
+    \item \textbf{Hybrid, not pure-PQ:} the MLWE assumption is young; pairing with
+          X25519 means a future lattice break still leaves sessions protected.
+          NIST and IETF recommend hybrid for the transition.
+    \item \textbf{vs related work:} PQ-WireGuard is pure-PQ on prototypes with
+          non-standard KEMs; Rosenpass/ExpressVPN carry PQ secrets through the PSK
+          slot. This work modifies the Noise handshake directly, on production-ready
+          code, with standardised ML-KEM -- complementary to the formal
+          Hybrid-WireGuard proof (Lafourcade et al.).
+  \end{itemize}
+\end{frame}
+
+
+% 5 -- KEM vs DH + HYBRID IDEA
+
+\begin{frame}{A KEM is not a Diffie--Hellman}
+  \centering
+  \includegraphics[width=\textwidth,height=\textheight,keepaspectratio]{fig_kem_vs_dh}
+\end{frame}
+
+
 % 5 -- THE HYBRID HANDSHAKE + KEY DERIVATION (figure, near-full frame)
-%==============================================================================
+
 \begin{frame}{The hybrid handshake: ML-KEM rides the existing two messages}
   \begin{columns}[c]
     \begin{column}{0.62\textwidth}
@@ -230,47 +237,20 @@ payload for free. And I touch only the handshake -- the ChaCha20-Poly1305 data
 plane is unchanged, which is why throughput is identical. Full KDF equation is in
 backup if asked.}
 
-%==============================================================================
-% 6 -- IMPLEMENTATION
-%==============================================================================
-\begin{frame}{Implementation}
-  \begin{itemize}
-    \item All PQ code behind a Cargo \texttt{pq} feature flag $\Rightarrow$
-          \textbf{a vanilla build is byte-for-byte identical to upstream}.
-    \item \texttt{ml-kem} crate (RustCrypto): pure-Rust, \texttt{no\_std}, NIST
-          KAT-tested $\Rightarrow$ \textbf{no C FFI}, runs on the Pi.
-    \item New message types \textbf{5}/\textbf{6}; parser dispatches on
-          type+size; a vanilla build cleanly rejects them
-          (\texttt{InvalidPacket}).
-  \end{itemize}
-  \vfill
-  \centering\small\color{pqgray}
-  Extended BoringTun's own Criterion benches \& \texttt{noise::tests} -- full PQ
-  handshake, end-to-end transport, vanilla-rejects-PQ.
-  \\[0.6em]\normalsize\color{pqprimary}\textbf{\ldots\ and you'll see it running
-  in the live demo.}
-\end{frame}
-\note{Everything PQ sits behind the pq feature -- so a build without it is
-byte-for-byte upstream BoringTun, which is how I get a clean baseline. ML-KEM via
-the pure-Rust RustCrypto crate, KAT-tested, no C FFI, runs on the Pi. Two new
-message types, 5 and 6; a vanilla peer rejects them gracefully. I extended
-BoringTun's own benches and unit tests to cover the PQ paths -- and you're about
-to see the whole thing run live, so I'll keep this short.}
 
-%==============================================================================
 % 9 -- SECURITY
-%==============================================================================
+
 \begin{frame}{Security analysis}
   \begin{block}{Hybrid-secure}
     The session key is indistinguishable from random if \textbf{X25519
-    \emph{or} ML-KEM} is secure (concatenate-then-KDF; HMAC-BLAKE2s as a PRF).
+    \emph{or} ML-KEM} is secure (sequential chaining / concatenate-then-KDF; HMAC-BLAKE2s as a PRF).
   \end{block}
   \begin{itemize}
     \item \textcolor{pqgood}{\textbf{Post-quantum forward secrecy:}} fresh ML-KEM
           keypair \emph{per handshake} $\Rightarrow$ past sessions stay safe even
           if X25519 later falls.
-          \\ \small\color{pqgray} The PSK-slot baseline \textbf{cannot} match
-          this: a static PSK, one compromise exposes many sessions.
+          \\ \small\color{pqgray} The PSK-slot baseline cannot match
+          this directly: a static PSK, one compromise exposes many sessions.
     \item \textcolor{pqaccent}{\textbf{Authentication stays classical}} (X25519
           static keys) -- \emph{deliberate}: it cannot be broken
           \emph{retroactively}, and NIST prioritises key-exchange migration over
@@ -285,30 +265,66 @@ compromise exposes everything. Honest limitation: authentication is still
 classical X25519 -- deliberate, can't be forged retroactively, NIST says migrate
 KEX first.}
 
-%==============================================================================
+
+% 6 -- IMPLEMENTATION
+
+\begin{frame}{Implementation}
+  \begin{itemize}
+    \item All PQ code behind a Cargo \texttt{pq} feature flag $\Rightarrow$
+          \textbf{a vanilla build is byte-for-byte identical to upstream}.
+    \item \texttt{ml-kem} crate (RustCrypto): pure-Rust, \texttt{no\_std}, NIST
+          KAT-tested $\Rightarrow$ \textbf{no C FFI}, runs on the Pi.
+    \item New message types \textbf{5}/\textbf{6}; parser dispatches on
+          type+size; a vanilla build cleanly rejects them
+          (\texttt{InvalidPacket}).
+  \end{itemize}
+  \vfill
+  \centering\small\color{pqgray}
+  Extended BoringTun's own Criterion benches \& \texttt{noise::tests} -- full PQ
+  handshake, end-to-end transport, vanilla-rejects-PQ.
+  \\[0.6em]\normalsize\color{pqprimary}\textbf{\ldots\ and we'll see it running
+  in the live demo.}
+\end{frame}
+\note{Everything PQ sits behind the pq feature -- so a build without it is
+byte-for-byte upstream BoringTun, which is how I get a clean baseline. ML-KEM via
+the pure-Rust RustCrypto crate, KAT-tested, no C FFI, runs on the Pi. Two new
+message types, 5 and 6; a vanilla peer rejects them gracefully. I extended
+BoringTun's own benches and unit tests to cover the PQ paths -- and you're about
+to see the whole thing run live, so I'll keep this short.}
+
+
 % 8 -- EVALUATION (latency + size + footprint)
 %==============================================================================
-\begin{frame}{Evaluation -- latency, size, footprint (Criterion, 95\% CI)}
+\begin{frame}{Evaluation -- per-primitive \& handshake cost (Criterion, 95\% CI)}
   \begin{columns}[T]
     \begin{column}{0.52\textwidth}
-      \begin{table}
-        \centering\small
-        \begin{tabular}{@{}lcc@{}}
-          \toprule
-          \textbf{Config} & \textbf{Apple M4} & \textbf{Pi 5} \\
-          \midrule
-          Vanilla   & 150.8\,$\mu$s & 1312\,$\mu$s \\
-          PSK-slot  & 151.0\,$\mu$s & 1312\,$\mu$s \\
-          \textbf{Hybrid} & \textbf{247.3\,$\mu$s} & \textbf{1643\,$\mu$s} \\
-          \midrule
-          \emph{overhead} & \textbf{+64\%} & \textbf{+25\%} \\
-          \bottomrule
-        \end{tabular}
-      \end{table}
-      \vspace{0.3em}
-      \small\color{pqgray}
-      64\% of a \emph{sub-millisecond, crypto-only} cost -- over a real link RTT
-      dominates, and the data plane is untouched.
+      \footnotesize
+      \centering
+      \textbf{Per-primitive} (\textmu s)\par\vspace{0.2em}
+      \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lcc@{}}
+        \toprule
+        \textbf{Operation} & \textbf{M4} & \textbf{Pi 5} \\
+        \midrule
+        ML-KEM-768 KeyGen & 24.13 & \phantom{0}81.66 \\
+        ML-KEM-768 Encaps & 20.82 & \phantom{0}82.77 \\
+        ML-KEM-768 Decaps & 28.03 & 115.15 \\
+        X25519 KeyGen     & \phantom{0}8.77 & \phantom{0}58.00 \\
+        X25519 DH         & 20.39 & 192.81 \\
+        \bottomrule
+      \end{tabular*}
+      \par\vspace{0.8em}
+      \textbf{Full handshake} (\textmu s)\par\vspace{0.2em}
+      \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lcc@{}}
+        \toprule
+        \textbf{Config} & \textbf{M4} & \textbf{Pi 5} \\
+        \midrule
+        Vanilla   & 150.8 & 1312 \\
+        PSK-slot  & 151.0 & 1312 \\
+        \textbf{Hybrid} & \textbf{247.3} & \textbf{1643} \\
+        \midrule
+        \emph{overhead} & \textbf{+64\%} & \textbf{+25\%} \\
+        \bottomrule
+      \end{tabular*}
     \end{column}
     \begin{column}{0.46\textwidth}
       \small
@@ -338,7 +354,7 @@ the data plane is untouched -- which the demo will show directly.}
 
 %==============================================================================
 % 12 -- CONCLUSIONS
-%==============================================================================
+
 \begin{frame}{Conclusions}
   \begin{block}{Contributions}
     \begin{enumerate}\small
@@ -362,9 +378,9 @@ today -- NIST standards, userspace, sub-ms overhead, data plane untouched. Open
 problems: MTU on hostile paths, PQ authentication via ML-DSA, a formal proof
 (Hybrid-WireGuard is the template).}
 
-%==============================================================================
+
 % 13 -- THANK YOU
-%==============================================================================
+
 {\setbeamertemplate{footline}{}
 \begin{frame}[plain]
   \centering
@@ -376,35 +392,10 @@ problems: MTU on hostile paths, PQ authentication via ML-DSA, a formal proof
   \vfill
 \end{frame}}
 
-%==============================================================================
+
 % BACKUP SLIDES
-%==============================================================================
+
 \appendix
-
-\begin{frame}{Backup -- per-primitive microbenchmarks (Criterion)}
-  \begin{table}
-    \centering\small
-    \begin{tabular}{@{}lcc@{}}
-      \toprule
-      \textbf{Operation} & \textbf{Apple M4} & \textbf{Raspberry Pi 5} \\
-      \midrule
-      ML-KEM-768 KeyGen & 24.13\,$\mu$s & \phantom{0}81.66\,$\mu$s \\
-      ML-KEM-768 Encaps & 20.82\,$\mu$s & \phantom{0}82.77\,$\mu$s \\
-      ML-KEM-768 Decaps & 28.03\,$\mu$s & 115.15\,$\mu$s \\
-      \midrule
-      X25519 KeyGen     & \phantom{0}8.77\,$\mu$s & \phantom{0}58.00\,$\mu$s \\
-      X25519 DH         & 20.39\,$\mu$s & 192.81\,$\mu$s \\
-      \bottomrule
-    \end{tabular}
-  \end{table}
-  \centering\small\color{pqgray}
-  On the Pi, a single X25519 DH costs more than any ML-KEM operation.
-\end{frame}
-
-\begin{frame}{Backup -- the PSK-slot baseline}
-  \centering
-  \includegraphics[width=\textwidth,height=0.85\textheight,keepaspectratio]{fig_psk_handshake}
-\end{frame}
 
 \begin{frame}{Backup -- MTU \& interoperability}
   \begin{itemize}
@@ -417,21 +408,6 @@ problems: MTU on hostile paths, PQ authentication via ML-DSA, a formal proof
           (\texttt{InvalidPacket}); no crash, but no auto-fallback -- both peers
           must be hybrid-capable. Capability negotiation is engineering, not
           fundamental.
-  \end{itemize}
-\end{frame}
-
-\begin{frame}{Backup -- why ML-KEM-768, why hybrid}
-  \begin{itemize}
-    \item \textbf{ML-KEM-768:} NIST Level 3 ($\sim$AES-192); the general-purpose
-          default recommended by NIST/IETF; balances size vs security.
-    \item \textbf{Hybrid, not pure-PQ:} the MLWE assumption is young; pairing with
-          X25519 means a future lattice break still leaves sessions protected.
-          NIST and IETF recommend hybrid for the transition.
-    \item \textbf{vs related work:} PQ-WireGuard is pure-PQ on prototypes with
-          non-standard KEMs; Rosenpass/ExpressVPN carry PQ secrets through the PSK
-          slot. This work modifies the Noise handshake directly, on production
-          code, with standardised ML-KEM -- complementary to the formal
-          Hybrid-WireGuard proof (Lafourcade et al.).
   \end{itemize}
 \end{frame}
 
