@@ -168,10 +168,10 @@ change; built as a baseline to quantify what B buys. Approach B is the real
 contribution: ML-KEM inside the handshake, fresh keys per session, on BoringTun
 so it deploys in userspace.}
 
-% 4 -- PSK-SLOT BASELINE
-\begin{frame}{Backup -- the PSK-slot baseline}
+% 4 -- KEM vs DH + HYBRID IDEA
+\begin{frame}{A KEM is not a Diffie--Hellman}
   \centering
-  \includegraphics[width=\textwidth,height=0.85\textheight,keepaspectratio]{fig_psk_handshake}
+  \includegraphics[width=\textwidth,height=\textheight,keepaspectratio]{fig_kem_vs_dh}
 \end{frame}
 
 % 4.5 -- why ML-KEM-768
@@ -190,16 +190,13 @@ so it deploys in userspace.}
   \end{itemize}
 \end{frame}
 
-
-% 5 -- KEM vs DH + HYBRID IDEA
-
-\begin{frame}{A KEM is not a Diffie--Hellman}
+% 5 -- PSK-SLOT BASELINE
+\begin{frame}{The PSK-slot baseline}
   \centering
-  \includegraphics[width=\textwidth,height=\textheight,keepaspectratio]{fig_kem_vs_dh}
+  \includegraphics[width=\textwidth,height=0.85\textheight,keepaspectratio]{fig_psk_handshake}
 \end{frame}
 
-
-% 5 -- THE HYBRID HANDSHAKE + KEY DERIVATION (figure, near-full frame)
+% 6 -- THE HYBRID HANDSHAKE + KEY DERIVATION (figure, near-full frame)
 
 \begin{frame}{The hybrid handshake: ML-KEM rides the existing two messages}
   \begin{columns}[c]
@@ -266,7 +263,7 @@ classical X25519 -- deliberate, can't be forged retroactively, NIST says migrate
 KEX first.}
 
 
-% 6 -- IMPLEMENTATION
+% 7 -- IMPLEMENTATION
 
 \begin{frame}{Implementation}
   \begin{itemize}
@@ -305,18 +302,18 @@ to see the whole thing run live, so I'll keep this short.}
         \toprule
         \textbf{Operation} & \textbf{M4} & \textbf{Pi 5} \\
         \midrule
+	X25519 KeyGen     & \phantom{0}8.77 & \phantom{0}58.00 \\
+	X25519 DH         & 20.39 & 192.81 \\
         ML-KEM-768 KeyGen & 24.13 & \phantom{0}81.66 \\
         ML-KEM-768 Encaps & 20.82 & \phantom{0}82.77 \\
         ML-KEM-768 Decaps & 28.03 & 115.15 \\
-        X25519 KeyGen     & \phantom{0}8.77 & \phantom{0}58.00 \\
-        X25519 DH         & 20.39 & 192.81 \\
         \bottomrule
       \end{tabular*}
       \par\vspace{0.8em}
       \textbf{Full handshake} (\textmu s)\par\vspace{0.2em}
       \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lcc@{}}
         \toprule
-        \textbf{Config} & \textbf{M4} & \textbf{Pi 5} \\
+        \textbf{Configuration} & \textbf{M4} & \textbf{Pi 5} \\
         \midrule
         Vanilla   & 150.8 & 1312 \\
         PSK-slot  & 151.0 & 1312 \\
@@ -337,7 +334,6 @@ to see the whole thing run live, so I'll keep this short.}
               datagram} (confirmed over Wi-Fi).
         \item \textbf{Footprint negligible:} binary +65\,KiB, RSS +0.16\,MiB.
         \item \textbf{Throughput identical} -- same data plane;
-              \alert{you'll see it live}.
       \end{itemize}
     \end{column}
   \end{columns}
@@ -352,7 +348,6 @@ tenfold to ~2.5 KB, but both messages fit a 1500-byte frame as one datagram,
 verified over Wi-Fi. Footprint is negligible, and throughput is identical because
 the data plane is untouched -- which the demo will show directly.}
 
-%==============================================================================
 % 12 -- CONCLUSIONS
 
 \begin{frame}{Conclusions}
@@ -369,9 +364,6 @@ the data plane is untouched -- which the demo will show directly.}
   \textbf{Bottom line:} hybrid PQ WireGuard is \textbf{practical today} --
   NIST-aligned, userspace-deployable, sub-millisecond overhead, data plane
   untouched.
-  \vfill
-  \small\color{pqgray}\textbf{Future work:} MTU strategies (segmentation / PMTUD);
-  ML-DSA authentication; a formal proof; ML-KEM parameter agility.
 \end{frame}
 \note{Four contributions on the slide. Takeaway: hybrid PQ WireGuard is practical
 today -- NIST standards, userspace, sub-ms overhead, data plane untouched. Open
