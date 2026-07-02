@@ -4,12 +4,8 @@
 %  Mihai-Cristian Farcas  --  UBB, 2026
 %
 %  Build:   tectonic presentation.tex
-%  Notes:   uncomment the \setbeameroption line below to print speaker notes
 
 \documentclass[aspectratio=169,11pt]{beamer}
-
-% --- speaker notes (uncomment to interleave note pages) ----------------------
-% \setbeameroption{show notes}
 
 \usepackage{booktabs}
 \usepackage{amsmath,amssymb}
@@ -83,9 +79,6 @@
   \vfill
   {\small\color{pqgray}Supervisor: Prof.\ Dr.\ Darabant Sergiu Adrian}
 \end{frame}}
-\note{One sentence: my thesis adds post-quantum protection to WireGuard's key
-exchange by integrating NIST-standardised ML-KEM into BoringTun's handshake, and
-measures what it costs. Then move on.}
 
 
 % ROADMAP
@@ -98,8 +91,6 @@ measures what it costs. Then move on.}
     \item Evaluation \& conclusions -- then a live demo
   \end{enumerate}
 \end{frame}
-\note{Ten seconds. The problem, the two approaches, the hybrid design and
-implementation, evaluation -- then we switch to a live demo. Don't dwell.}
 
 
 % 2 -- THE PROBLEM (motivation + why migration is hard)
@@ -122,14 +113,6 @@ implementation, evaluation -- then we switch to a live demo. Don't dwell.}
     itself.
   \end{block}
 \end{frame}
-\note{WireGuard replaced IPsec/OpenVPN -- in the kernel, every OS, deployed by
-Cloudflare, Mullvad, Tailscale -- but all key agreement rests on X25519, which
-Shor breaks. The threat is not future: harvest-now-decrypt-later means record
-now, decrypt later, so for long-lived secrets migration is urgent now. NIST has
-put dates on it. And WireGuard is deliberately rigid -- one cipher suite, no
-negotiation -- which is why it dodged TLS/IPsec downgrade bugs but leaves no slot
-to drop a new algorithm into. Two handles: the PSK slot and the Noise IK
-handshake. I built both.}
 
 % 3 -- RESEARCH QUESTION + TWO APPROACHES
 
@@ -162,11 +145,6 @@ handshake. I built both.}
   \end{columns}
   \vfill
 \end{frame}
-\note{Slow down here -- this is the framing. RQ on the slide. Two attacks.
-Approach A: minimal, out-of-band ML-KEM into the existing PSK slot, no protocol
-change; built as a baseline to quantify what B buys. Approach B is the real
-contribution: ML-KEM inside the handshake, fresh keys per session, on BoringTun
-so it deploys in userspace.}
 
 % 4 -- KEM vs DH + HYBRID IDEA
 \begin{frame}{A KEM is not a Diffie--Hellman}
@@ -224,15 +202,6 @@ so it deploys in userspace.}
     \end{column}
   \end{columns}
 \end{frame}
-\note{Core of the thesis -- walk the diagram. Fresh ML-KEM keypair per handshake;
-ek in message one. Responder runs Encaps, returns ct in message two. Initiator
-decapsulates -- same secret, no extra round trips. The secrets combine with one
-extra HMAC-BLAKE2s step after the four X25519 results, reusing WireGuard's own
-KDF (clean security argument); ek and ct bind into the transcript hash. Design
-detail: ek/ct go before the MAC fields, so the anti-DoS cookie extends to the PQ
-payload for free. And I touch only the handshake -- the ChaCha20-Poly1305 data
-plane is unchanged, which is why throughput is identical. Full KDF equation is in
-backup if asked.}
 
 
 % 9 -- SECURITY
@@ -251,16 +220,9 @@ backup if asked.}
     \item \textcolor{pqaccent}{\textbf{Authentication stays classical}} (X25519
           static keys) -- \emph{deliberate}: it cannot be broken
           \emph{retroactively}, and NIST prioritises key-exchange migration over
-          signatures. ML-DSA is future work.
+          signatures.
   \end{itemize}
 \end{frame}
-\note{Three claims. Hybrid security: both secrets feed a PRF-based KDF, so the key
-looks random if either holds -- informal reduction via the concatenation
-combiner. The key win over the baseline: fresh KEM keypair per handshake gives
-post-quantum forward secrecy; the PSK-slot reuses one static PSK, so one
-compromise exposes everything. Honest limitation: authentication is still
-classical X25519 -- deliberate, can't be forged retroactively, NIST says migrate
-KEX first.}
 
 
 % 7 -- IMPLEMENTATION
@@ -282,17 +244,11 @@ KEX first.}
   \\[0.6em]\normalsize\color{pqprimary}\textbf{\ldots\ and we'll see it running
   in the live demo.}
 \end{frame}
-\note{Everything PQ sits behind the pq feature -- so a build without it is
-byte-for-byte upstream BoringTun, which is how I get a clean baseline. ML-KEM via
-the pure-Rust RustCrypto crate, KAT-tested, no C FFI, runs on the Pi. Two new
-message types, 5 and 6; a vanilla peer rejects them gracefully. I extended
-BoringTun's own benches and unit tests to cover the PQ paths -- and you're about
-to see the whole thing run live, so I'll keep this short.}
 
 
 % 8 -- EVALUATION (latency + size + footprint)
 %==============================================================================
-\begin{frame}{Evaluation -- per-primitive \& handshake cost (Criterion, 95\% CI)}
+\begin{frame}{Evaluation -- per-primitive \& handshake cost (Criterion)}
   \begin{columns}[T]
     \begin{column}{0.52\textwidth}
       \footnotesize
@@ -333,20 +289,11 @@ to see the whole thing run live, so I'll keep this short.}
               2{,}512\,B}, yet both messages fit a 1{,}500\,B MTU \alert{in one
               datagram} (confirmed over Wi-Fi).
         \item \textbf{Footprint negligible:} binary +65\,KiB, RSS +0.16\,MiB.
-        \item \textbf{Throughput identical} -- same data plane;
+        \item \textbf{Throughput identical} -- same data plane.
       \end{itemize}
     \end{column}
   \end{columns}
 \end{frame}
-\note{Criterion microbenchmarks, 500 samples, bootstrapped CIs, on M4 and Pi 5.
-Hybrid adds 64\% on M4, 25\% on Pi -- but it's 64\% of a sub-millisecond,
-crypto-only cost; PSK-slot is indistinguishable from vanilla. The memorable
-finding, with a bit of "this surprised me": on the Pi a single X25519 DH is
-slower than any ML-KEM op, because x25519-dalek doesn't use NEON while ML-KEM's
-NTT maps onto the integer pipeline. The real cost is size -- the handshake grows
-tenfold to ~2.5 KB, but both messages fit a 1500-byte frame as one datagram,
-verified over Wi-Fi. Footprint is negligible, and throughput is identical because
-the data plane is untouched -- which the demo will show directly.}
 
 % 12 -- CONCLUSIONS
 
@@ -365,10 +312,6 @@ the data plane is untouched -- which the demo will show directly.}
   NIST-aligned, userspace-deployable, sub-millisecond overhead, data plane
   untouched.
 \end{frame}
-\note{Four contributions on the slide. Takeaway: hybrid PQ WireGuard is practical
-today -- NIST standards, userspace, sub-ms overhead, data plane untouched. Open
-problems: MTU on hostile paths, PQ authentication via ML-DSA, a formal proof
-(Hybrid-WireGuard is the template).}
 
 
 % 13 -- THANK YOU
