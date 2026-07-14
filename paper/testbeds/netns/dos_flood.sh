@@ -14,16 +14,19 @@
 #     /proc/<pid>/stat (user + sys ticks). Normalise by packets sent.
 #
 # Two MAC1 modes:
-#   valid    — flooder uses the real responder pubkey, so MAC1 matches.
-#              Responder must run full crypto (Encaps in pq mode).
-#   invalid  — MAC1 byte is flipped after format. Responder should reject
-#              before any Encaps work happens.
+#   valid    — flooder uses the real responder pubkey, so MAC1 matches and
+#              the packet enters the load-dependent path. NB: at saturating
+#              rates the rate limiter (100 handshakes/s) answers almost all
+#              of these with cookie replies, and the few admitted packets
+#              stop at peer lookup (no peers configured) — Encaps never runs.
+#   invalid  — MAC1 byte is flipped after format. Responder rejects at the
+#              top of the receive path, before any further work.
 #
 # The interesting comparison is (mode × mac1):
 #     vanilla / invalid : baseline; reject-cheap path
-#     pq      / invalid : same reject path, same cost as vanilla expected
-#     vanilla / valid   : full classical handshake processing
-#     pq      / valid   : full hybrid handshake — Encaps cost amplified
+#     pq      / invalid : same reject path, larger message to parse/hash
+#     vanilla / valid   : MAC1 verify + cookie replies + rate-limited DH residue
+#     pq      / valid   : same path on 1332-byte messages; no ML-KEM work
 #
 # Output: paper/measurements/netns-dos-flood.csv
 #

@@ -298,9 +298,9 @@ Vanilla   & M4              & 150.82 [150.70, 150.94] \\
 PSK-slot  & M4              & 150.99 [150.86, 151.12] \\
 Hybrid    & M4              & 247.34 [247.06, 247.63] \\
 \midrule
-Vanilla   & Raspberry Pi 5  & 1312.2 [1312.1, 1312.3] \\
-PSK-slot  & Raspberry Pi 5  & 1311.5 [1311.4, 1311.6] \\
-Hybrid    & Raspberry Pi 5  & 1642.9 [1642.7, 1643.1] \\
+Vanilla   & Raspberry Pi 5  & 1312.0 [1311.9, 1312.1] \\
+PSK-slot  & Raspberry Pi 5  & 1312.0 [1311.9, 1312.1] \\
+Hybrid    & Raspberry Pi 5  & 1644.0 [1643.8, 1644.2] \\
 \midrule
 Vanilla   & Ryzen 7 5700X   & 279.64 [278.83, 280.50] \\
 PSK-slot  & Ryzen 7 5700X   & 281.20 [280.38, 282.07] \\
@@ -309,9 +309,9 @@ Hybrid    & Ryzen 7 5700X   & 414.91 [413.93, 415.98] \\
 \end{tabular}
 \end{table}
 
-On the M4 the hybrid adds about 97~$\mu$s over vanilla (+64\%). The isolated ML-KEM operations (KeyGen + Encaps + Decaps $\approx$ 73~$\mu$s, \cref{tab:mlkem_benchmarks}) account for most of it; the remaining $\sim$24~$\mu$s is bookkeeping around the KEM --- an extra BLAKE2s pass over the 2272 bytes of PQ transcript material, the extra HMAC-BLAKE2s mixing step, larger heap buffers. PSK-slot sits inside vanilla's confidence interval, as expected from a handful of extra HMAC calls.
+On the M4 the hybrid adds about 97~$\mu$s over vanilla (+64\%). The isolated ML-KEM operations (KeyGen + Encaps + Decaps $\approx$ 73~$\mu$s, \cref{tab:mlkem_benchmarks}) account for most of it; the remaining $\sim$23~$\mu$s is bookkeeping around the KEM --- an extra BLAKE2s pass over the 2272 bytes of PQ transcript material, the extra HMAC-BLAKE2s mixing step, larger heap buffers. PSK-slot sits inside vanilla's confidence interval, as expected from a handful of extra HMAC calls.
 
-The Pi tells a different story: the hybrid adds about 331~$\mu$s, but only +25\%, because the classical baseline is dominated by X25519. A single DH takes 192.81~$\mu$s there, and the six fresh DH operations per handshake (BoringTun caches the static-static result) alone account for $\sim$1157~$\mu$s of the 1312~$\mu$s vanilla figure. The three ML-KEM operations explain $\sim$280~$\mu$s of the hybrid gap, payload movement the rest.
+The Pi tells a different story: the hybrid adds about 332~$\mu$s, but only +25\%, because the classical baseline is dominated by X25519. A single DH takes 192.54~$\mu$s there, and the six fresh DH operations per handshake (BoringTun caches the static-static result) alone account for $\sim$1155~$\mu$s of the 1312~$\mu$s vanilla figure. The three ML-KEM operations explain $\sim$282~$\mu$s of the hybrid gap, payload movement the rest.
 
 The Ryzen sits between the two in raw speed and proportional overhead (vanilla 279.64~$\mu$s, hybrid 414.91~$\mu$s, +48\%), with the ML-KEM operations again explaining most of the gap. It serves mainly as a control: the implementation produces the same shape of result on x86\_64, with hybrid overhead bounded by ML-KEM cost rather than anything ARM-specific.
 
@@ -366,17 +366,17 @@ Throughput is statistically indistinguishable across configurations: in both set
 \toprule
 \textbf{Operation} & \textbf{M4 ($\mu$s)} & \textbf{Raspberry Pi 5 ($\mu$s)} & \textbf{Ryzen 5700X ($\mu$s)} \\
 \midrule
-ML-KEM-768 KeyGen & 24.13 [24.10, 24.16] & 81.66 [81.65, 81.67]    & 35.83 [35.75, 35.93]    \\
-ML-KEM-768 Encaps & 20.82 [20.80, 20.85] & 82.77 [82.76, 82.77]    & 33.88 [33.76, 34.01]    \\
-ML-KEM-768 Decaps & 28.03 [27.99, 28.07] & 115.15 [115.14, 115.16] & 45.54 [45.43, 45.66]    \\
+ML-KEM-768 KeyGen & 23.85 [23.82, 23.87] & 81.61 [81.60, 81.62]    & 35.83 [35.75, 35.93]    \\
+ML-KEM-768 Encaps & 21.26 [21.21, 21.32] & 84.04 [84.03, 84.04]    & 33.88 [33.76, 34.01]    \\
+ML-KEM-768 Decaps & 27.99 [27.93, 28.06] & 116.39 [116.28, 116.62] & 45.54 [45.43, 45.66]    \\
 \midrule
-X25519 KeyGen     & 8.77 [8.76, 8.78]    & 58.00 [57.99, 58.00]    & 12.44 [12.41, 12.48]    \\
-X25519 DH         & 20.39 [20.36, 20.41] & 192.81 [192.80, 192.82] & 39.52 [39.41, 39.63]    \\
+X25519 KeyGen     & 8.77 [8.76, 8.78]    & 57.98 [57.97, 57.98]    & 12.44 [12.41, 12.48]    \\
+X25519 DH         & 20.39 [20.36, 20.41] & 192.54 [192.53, 192.55] & 39.52 [39.41, 39.63]    \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Relative performance depends heavily on the platform. On the M4 the two primitives are roughly comparable per operation: X25519 DH and ML-KEM Encaps land within half a microsecond of each other, and X25519 clearly wins only at keypair generation. On the Pi the relationship flips: X25519 DH balloons to 192.81~$\mu$s while all three ML-KEM operations sit below it --- broadly matching the eBACS cycle-count prediction that ML-KEM should be 2--3$\times$ faster than X25519. The Ryzen sits between the two and is closer in shape to the M4, which supports reading the Pi gap as platform-specific: \texttt{x25519-dalek} has a fast AVX2 backend (helping the Ryzen) and a fast scalar path (handled well by the M4's wide core), but lacks a NEON port for the Cortex-A76, so the Pi falls back to a slow scalar implementation while ML-KEM's NTT-based arithmetic maps onto the integer pipeline either way.
+Relative performance depends heavily on the platform. On the M4 the two primitives are roughly comparable per operation: X25519 DH and ML-KEM Encaps land within a microsecond of each other, and X25519 clearly wins only at keypair generation. On the Pi the relationship flips: X25519 DH balloons to 192.54~$\mu$s while all three ML-KEM operations sit below it --- broadly matching the eBACS cycle-count prediction that ML-KEM should be 2--3$\times$ faster than X25519. The Ryzen sits between the two and is closer in shape to the M4, which supports reading the Pi gap as platform-specific: \texttt{x25519-dalek} has a fast AVX2 backend (helping the Ryzen) and a fast scalar path (handled well by the M4's wide core), but lacks a NEON port for the Cortex-A76, so the Pi falls back to a slow scalar implementation while ML-KEM's NTT-based arithmetic maps onto the integer pipeline either way.
 
 \subsection{ML-KEM parameter set sweep}
 \label{sec:eval_paramsweep}
@@ -501,7 +501,7 @@ With MTU pinned at 1500 (no fragmentation pressure), the testbed attaches \textt
 
 Median latency tracks RTT cleanly, as it should: at $d$~ms one-way delay the first-packet ping pays one handshake round-trip plus one ping round-trip, so p50 sits just above $4d$. The hybrid is consistently 0.5--1~ms above vanilla across every RTT band --- the ML-KEM cost again, unaffected by the link.
 
-The interesting cells are at the high end. At 50~ms $\times$ 1\%, both modes drop to 19/20 successes --- the same per-trial failure rate --- but the hybrid p95 stretches to 1319~ms against vanilla's 303~ms: the signature of a handshake retry firing. Retry-recovery cost is mode-independent; the hybrid tail is longer simply because its larger messages present more wire-level events to be the one that gets dropped. The 100~ms cells at 19/20 are within Bernoulli noise for 20 samples. The deployment takeaway: on ordinary links the hybrid behaves like vanilla; under combined high RTT and non-trivial loss the failure \emph{rate} is unchanged but worst-case recovery can take seconds --- a tail that matters for re-handshake budgets in long-lived sessions, not for the dominant first-connect case.
+The interesting cells are at the high end. At 50~ms $\times$ 1\%, both modes drop to 19/20 successes --- the same per-trial failure rate --- and the hybrid p95 stretches to 1319~ms against vanilla's 303~ms: the signature of a retry firing. The gap between the two tails should not be over-read: at 1500-byte MTU both modes send the same number of handshake datagrams and \texttt{netem} drops whole packets, so with a single loss event per 20 trials the p95 lands on the one trial that retried, and the figure is dominated by where in the retry sequence that particular loss happened. The 100~ms cells at 19/20 are within Bernoulli noise for 20 samples. The deployment takeaway: on ordinary links the hybrid behaves like vanilla; under combined high RTT and non-trivial loss the failure \emph{rate} is unchanged but worst-case recovery can take seconds --- a tail that matters for re-handshake budgets in long-lived sessions, not for the dominant first-connect case.
 
 \subsection{Per-peer memory footprint}
 \label{sec:eval_memory}
@@ -529,9 +529,9 @@ On the dynamic side, the M4 probe shows per-peer resident-set cost converging to
 \subsection{DoS asymmetry under handshake flood}
 \label{sec:eval_dos}
 
-WireGuard's handshake messages carry two MACs: MAC1 (HMAC over the message, keyed by a hash of the responder's static public key) and MAC2 (cookie-bound, used only under signalled overload). MAC1 is the first line of defence against handshake-init floods: the rate limiter verifies it before committing to any expensive cryptography --- and in the hybrid that expensive path now includes an ML-KEM Encaps on top of the three X25519 operations, so the reject/full-crypto asymmetry matters more. To check that the MAC1 short-circuit fires before the Encaps step, a small flooder (\texttt{boringtun/examples/handshake\_flood.rs}) emits init packets at line rate in two variants: \textbf{valid MAC1} (rate-limit check passes, responder runs the full handshake parse) and \textbf{invalid MAC1} (rejected at the top of the receive path).
+WireGuard's handshake messages carry two MACs: MAC1 (HMAC over the message, keyed by a hash of the responder's static public key) and MAC2 (cookie-bound, used only under signalled overload). MAC1 is the first line of defence against handshake-init floods: the rate limiter verifies it before committing to anything more expensive --- and in the hybrid the expensive path now includes an ML-KEM Encaps on top of the X25519 operations, so the asymmetry between rejecting a flood packet and processing it matters more. To measure what a responder actually spends per packet under flood, a small flooder (\texttt{boringtun/examples/handshake\_flood.rs}) emits init packets at line rate in two variants: \textbf{valid MAC1} (the packet passes MAC1 verification and proceeds into the load-dependent processing path) and \textbf{invalid MAC1} (rejected at the top of the receive path).
 
-Each cell is a 10-second saturating flood from a single-threaded flooder against a single Pi 5 responder, with fresh keypairs on every packet so the responder cannot fast-path on session caches. CPU time is sampled from \texttt{/proc/<pid>/stat} before and after the window and divided by the number of packets the flooder sent.
+Each cell is a 10-second saturating flood from a single-threaded flooder against a single Pi 5 responder, with fresh keypairs on every packet so the responder cannot fast-path on session caches. That freshness is itself expensive to produce --- the flooder performs real keypair generation and MAC computation per packet --- so a single flooder core saturates at roughly 1{,}900 packets per second in vanilla mode and 1{,}650 in hybrid mode, far above BoringTun's handshake admission threshold of 100 per second. CPU time is sampled from \texttt{/proc/<pid>/stat} before and after the window and divided by the number of packets the flooder sent.
 
 \begin{table}[H]
 \centering
@@ -550,9 +550,11 @@ Hybrid  & valid    & 16{,}491 & 0.390 & 23.65 \\
 \end{tabular}
 \end{table}
 
-The within-mode ratio confirms the short-circuit. For vanilla, the full-crypto path costs 4.8$\times$ more CPU than the reject path; for hybrid, 3.9$\times$ more. If MAC1 verification ran after Encaps rather than before, both ratios would sit close to 1 and the reject path would inherit the full crypto cost. They don't, so the kind of ``valid MAC1 doubles your attack surface'' argument that gets made about post-quantum handshake additions does not actually apply to this implementation. The hybrid build still pays more per rejected packet in absolute terms (6.05~$\mu$s vs vanilla's 3.09~$\mu$s, a 2.0$\times$ gap), but that comes from parsing the larger 1332-byte initiation and from the rate-limit table lookup hashing more bytes, not from running any Kyber operation.
+Reading the \emph{valid} rows correctly requires accounting for WireGuard's second defence layer, because at these rates the responder sits permanently in the under-load regime. BoringTun's rate limiter admits at most 100 handshakes per second past the MAC1 check without a cookie; every further valid-MAC1 packet receives only a cookie reply, and since the flooder never completes the cookie round-trip, no MAC2-authenticated retry follows. The admitted packets do not reach ML-KEM either: the responder performs one X25519 DH to decrypt the initiator's static key, finds no matching configured peer, and drops the packet --- Encaps runs only when a response is being built for a recognized peer. The \emph{valid}-row figures are therefore not the cost of full handshake cryptography (a single X25519 DH alone costs 192.54~$\mu$s on this hardware, \cref{tab:mlkem_benchmarks}); they are the cost of MAC1 verification plus a cookie reply for the vast majority of packets, plus the rate-limited residue of single-DH work. The accounting closes: at the measured 1{,}943 packets per second, $\sim$100 admitted packets at $\sim$195~$\mu$s each plus $\sim$1{,}840 cookie replies at a few microseconds each predict $\approx$29~ms of responder CPU per second --- matching the measured 0.290~s over the 10-second vanilla window.
 
-A practical reading: at the worst measured rate (23.65~$\mu$s per packet, hybrid valid), the Pi 5 spends roughly 3.9\% of one core keeping up with a 16{,}500-pps flood --- well within the headroom needed to keep serving legitimate handshakes. The cookie-reply path (MAC2) was deliberately not exercised so the MAC1 short-circuit could be measured in isolation.
+The security-relevant finding is stronger than the MAC1-ordering check the experiment was designed for: under a saturating flood of well-formed, valid-MAC1 initiations, the responder performed \emph{zero} ML-KEM operations, because MAC1 verification and cookie-based rate limiting together gate all post-quantum work behind a round-trip the attacker must complete. The within-mode ratios (4.8$\times$ for vanilla, 3.9$\times$ for hybrid) compare the pure MAC1 reject against this verify-plus-cookie path. The hybrid build still pays more per rejected packet in absolute terms (6.05~$\mu$s vs vanilla's 3.09~$\mu$s, a 2.0$\times$ gap), but that comes from parsing the larger 1332-byte initiation and from the MAC1 computation hashing more bytes, not from running any ML-KEM operation.
+
+A practical reading: at the worst measured rate (23.65~$\mu$s per packet, hybrid valid), the Pi 5 spends roughly 3.9\% of one core absorbing a $\sim$1{,}650-pps flood --- well within the headroom needed to keep serving legitimate handshakes. What this experiment does not bound is an adversary who completes cookie round-trips from genuine source addresses to present valid MAC2s, thereby forcing full handshake processing (including Encaps); quantifying that MAC2-authenticated path, and handshake completion for legitimate peers under sustained flood, is left as future work.
 
 \subsection{End-to-end validation over the public internet}
 \label{sec:eval_wan}
@@ -580,7 +582,7 @@ The hybrid earns its extra 800 lines through per-handshake forward secrecy: ever
 
 \textbf{Key management} is actually simpler with the hybrid than with the PSK-slot approach: X25519 static keys are managed as before, and the ML-KEM ephemeral keys are generated and discarded within each handshake. There is nothing new to distribute or rotate.
 
-\textbf{Performance on constrained hardware} matters for edge and IoT deployments, and the Pi 5 numbers collectively clear the bar: sub-millisecond handshake overhead (far below any WAN RTT), a fixed 6.4~KB of extra per-peer state --- roughly 6.9~MB for a thousand peers --- and $\sim$3.9\% of one core under a saturating init flood with the MAC1 short-circuit confirmed. None of these signal a meaningful deployability barrier at the Pi-class hardware tier.
+\textbf{Performance on constrained hardware} matters for edge and IoT deployments, and the Pi 5 numbers collectively clear the bar: sub-millisecond handshake overhead (far below any WAN RTT), a fixed 6.4~KB of extra per-peer state --- roughly 6.9~MB for a thousand peers --- and $\sim$3.9\% of one core under a saturating init flood, with all ML-KEM work gated behind MAC1 verification and cookie-based rate limiting. None of these signal a meaningful deployability barrier at the Pi-class hardware tier.
 
 \subsection{Authentication agility and future work}
 
