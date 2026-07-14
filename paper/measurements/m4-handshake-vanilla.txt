@@ -1,0 +1,76 @@
+warning: virtual workspace defaulting to `resolver = "1"` despite one or more workspace members being on edition 2021 which implies `resolver = "2"`
+  |
+  = note: to keep the current resolver, specify `workspace.resolver = "1"` in the workspace root's manifest
+  = note: to use the edition 2021 resolver, specify `workspace.resolver = "2"` in the workspace root's manifest
+  = note: for more details see https://doc.rust-lang.org/cargo/reference/resolver.html#resolver-versions
+   Compiling boringtun v0.7.0 (/Users/mihaicristianfarcas/Projects/pq-boringtun/boringtun)
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+   --> boringtun/src/noise/handshake.rs:535:30
+    |
+535 |         ring::constant_time::verify_slices_are_equal(
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+  --> boringtun/src/noise/rate_limiter.rs:18:26
+   |
+18 | use ring::constant_time::verify_slices_are_equal;
+   |                          ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+   --> boringtun/src/noise/rate_limiter.rs:181:13
+    |
+181 |             verify_slices_are_equal(&computed_mac1[..16], mac1)
+    |             ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+   --> boringtun/src/noise/rate_limiter.rs:194:20
+    |
+194 |                 if verify_slices_are_equal(&computed_mac2[..16], mac2).is_err() {
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `KeyBytes` is never constructed
+ --> boringtun/src/serialization.rs:1:19
+  |
+1 | pub(crate) struct KeyBytes(pub [u8; 32]);
+  |                   ^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> boringtun/src/noise/mod.rs:165:39
+    |
+165 |     pub fn parse_incoming_packet(src: &[u8]) -> Result<Packet, WireGuardError> {
+    |                                       ^^^^^            ^^^^^^ the same lifetime is hidden here
+    |                                       |
+    |                                       the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+    = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+    |
+165 |     pub fn parse_incoming_packet(src: &[u8]) -> Result<Packet<'_>, WireGuardError> {
+    |                                                              ++++
+
+warning: `boringtun` (lib) generated 6 warnings (run `cargo fix --lib -p boringtun` to apply 1 suggestion)
+    Finished `bench` profile [optimized] target(s) in 13.98s
+     Running benches/handshake_benches/main.rs (/tmp/pq-bench-target/release/deps/handshake_benches-af82080cae23462d)
+Gnuplot not found, using plotters backend
+Benchmarking handshake/vanilla
+Benchmarking handshake/vanilla: Warming up for 3.0000 s
+Benchmarking handshake/vanilla: Collecting 500 samples in estimated 5.0561 s (22k iterations)
+Benchmarking handshake/vanilla: Analyzing
+handshake/vanilla       time:   [153.32 µs 153.55 µs 153.77 µs]
+Found 21 outliers among 500 measurements (4.20%)
+  10 (2.00%) low mild
+  11 (2.20%) high mild
+Benchmarking handshake/psk_slot
+Benchmarking handshake/psk_slot: Warming up for 3.0000 s
+Benchmarking handshake/psk_slot: Collecting 500 samples in estimated 5.0035 s (22k iterations)
+Benchmarking handshake/psk_slot: Analyzing
+handshake/psk_slot      time:   [154.75 µs 154.99 µs 155.24 µs]
+Found 22 outliers among 500 measurements (4.40%)
+  10 (2.00%) low mild
+  12 (2.40%) high mild
+

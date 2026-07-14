@@ -1,0 +1,1300 @@
+{
+	"start":	{
+		"connected":	[{
+				"socket":	5,
+				"local_host":	"10.20.0.1",
+				"local_port":	53271,
+				"remote_host":	"10.20.0.2",
+				"remote_port":	5201
+			}],
+		"version":	"iperf 3.21",
+		"system_info":	"Darwin Mihai-Cristians-MacBook-Pro.local 25.5.0 Darwin Kernel Version 25.5.0: Tue Jun  9 22:28:34 PDT 2026; root:xnu-12377.121.10~1/RELEASE_ARM64_T6041 arm64",
+		"timestamp":	{
+			"time":	"Tue, 14 Jul 2026 21:43:50 UTC",
+			"timesecs":	1784065430,
+			"timemillisecs":	1784065430962
+		},
+		"connecting_to":	{
+			"host":	"10.20.0.2",
+			"port":	5201
+		},
+		"cookie":	"jsmxxxtbuv5gnaaiambo5stk2py7uathtnpr",
+		"tcp_mss_default":	1448,
+		"target_bitrate":	0,
+		"fq_rate":	0,
+		"sock_bufsize":	0,
+		"sndbuf_actual":	131072,
+		"rcvbuf_actual":	131072,
+		"test_start":	{
+			"protocol":	"TCP",
+			"num_streams":	1,
+			"blksize":	131072,
+			"omit":	0,
+			"duration":	15,
+			"bytes":	0,
+			"blocks":	0,
+			"reverse":	0,
+			"tos":	0,
+			"target_bitrate":	0,
+			"bidir":	0,
+			"fqrate":	0,
+			"interval":	0,
+			"gso":	0,
+			"gro":	0
+		}
+	},
+	"intervals":	[{
+			"streams":	[{
+					"socket":	5,
+					"start":	0,
+					"end":	15.000858,
+					"seconds":	15.000858306884766,
+					"bytes":	870711296,
+					"bits_per_second":	464352787.38704169,
+					"retransmits":	1339,
+					"snd_cwnd":	717480,
+					"snd_wnd":	-1,
+					"rtt":	11,
+					"rttvar":	0,
+					"pmtu":	-1,
+					"reorder":	-1,
+					"omitted":	false,
+					"sender":	true
+				}],
+			"sum":	{
+				"start":	0,
+				"end":	15.000858,
+				"seconds":	15.000858306884766,
+				"bytes":	870711296,
+				"bits_per_second":	464352787.38704169,
+				"retransmits":	1339,
+				"omitted":	false,
+				"sender":	true
+			}
+		}],
+	"end":	{
+		"streams":	[{
+				"sender":	{
+					"socket":	5,
+					"start":	0,
+					"end":	15.000858,
+					"seconds":	15.000858,
+					"bytes":	870711296,
+					"bits_per_second":	464352796.88668478,
+					"retransmits":	1339,
+					"reorder":	-1,
+					"max_snd_cwnd":	717480,
+					"max_snd_wnd":	0,
+					"max_rtt":	11,
+					"min_rtt":	11,
+					"mean_rtt":	11,
+					"sender":	true
+				},
+				"receiver":	{
+					"socket":	5,
+					"start":	0,
+					"end":	15.020497,
+					"seconds":	15.000858,
+					"bytes":	869793792,
+					"bits_per_second":	463256997.15528721,
+					"sender":	true
+				}
+			}],
+		"sum_sent":	{
+			"start":	0,
+			"end":	15.000858,
+			"seconds":	15.000858,
+			"bytes":	870711296,
+			"bits_per_second":	464352796.88668478,
+			"retransmits":	1339,
+			"sender":	true
+		},
+		"sum_received":	{
+			"start":	0,
+			"end":	15.020497,
+			"seconds":	15.020497,
+			"bytes":	869793792,
+			"bits_per_second":	463256997.15528721,
+			"sender":	true
+		},
+		"cpu_utilization_percent":	{
+			"host_total":	3.3090932915356071,
+			"host_user":	0.023847471624807957,
+			"host_system":	3.285232489853994,
+			"remote_total":	18.095145777017276,
+			"remote_user":	0.68748668903297483,
+			"remote_system":	17.4076457728563
+		}
+	}
+}
+
+{
+	"start":	{
+		"connected":	[{
+				"socket":	5,
+				"local_host":	"10.20.0.1",
+				"local_port":	53274,
+				"remote_host":	"10.20.0.2",
+				"remote_port":	5201
+			}],
+		"version":	"iperf 3.21",
+		"system_info":	"Darwin Mihai-Cristians-MacBook-Pro.local 25.5.0 Darwin Kernel Version 25.5.0: Tue Jun  9 22:28:34 PDT 2026; root:xnu-12377.121.10~1/RELEASE_ARM64_T6041 arm64",
+		"timestamp":	{
+			"time":	"Tue, 14 Jul 2026 21:44:06 UTC",
+			"timesecs":	1784065446,
+			"timemillisecs":	1784065446000
+		},
+		"connecting_to":	{
+			"host":	"10.20.0.2",
+			"port":	5201
+		},
+		"cookie":	"d7myz2dd2r7fo2mu66qohsqie65plyjqj2b5",
+		"tcp_mss_default":	1448,
+		"target_bitrate":	0,
+		"fq_rate":	0,
+		"sock_bufsize":	0,
+		"sndbuf_actual":	131072,
+		"rcvbuf_actual":	131072,
+		"test_start":	{
+			"protocol":	"TCP",
+			"num_streams":	1,
+			"blksize":	131072,
+			"omit":	0,
+			"duration":	15,
+			"bytes":	0,
+			"blocks":	0,
+			"reverse":	0,
+			"tos":	0,
+			"target_bitrate":	0,
+			"bidir":	0,
+			"fqrate":	0,
+			"interval":	0,
+			"gso":	0,
+			"gro":	0
+		}
+	},
+	"intervals":	[{
+			"streams":	[{
+					"socket":	5,
+					"start":	0,
+					"end":	15.002674,
+					"seconds":	15.002674102783203,
+					"bytes":	904396800,
+					"bits_per_second":	482258985.99355531,
+					"retransmits":	1234,
+					"snd_cwnd":	613952,
+					"snd_wnd":	-1,
+					"rtt":	10,
+					"rttvar":	0,
+					"pmtu":	-1,
+					"reorder":	-1,
+					"omitted":	false,
+					"sender":	true
+				}],
+			"sum":	{
+				"start":	0,
+				"end":	15.002674,
+				"seconds":	15.002674102783203,
+				"bytes":	904396800,
+				"bits_per_second":	482258985.99355531,
+				"retransmits":	1234,
+				"omitted":	false,
+				"sender":	true
+			}
+		}],
+	"end":	{
+		"streams":	[{
+				"sender":	{
+					"socket":	5,
+					"start":	0,
+					"end":	15.002674,
+					"seconds":	15.002674,
+					"bytes":	904396800,
+					"bits_per_second":	482258989.29750788,
+					"retransmits":	1234,
+					"reorder":	-1,
+					"max_snd_cwnd":	613952,
+					"max_snd_wnd":	0,
+					"max_rtt":	10,
+					"min_rtt":	10,
+					"mean_rtt":	10,
+					"sender":	true
+				},
+				"receiver":	{
+					"socket":	5,
+					"start":	0,
+					"end":	15.012219,
+					"seconds":	15.002674,
+					"bytes":	903610368,
+					"bits_per_second":	481533272.59614319,
+					"sender":	true
+				}
+			}],
+		"sum_sent":	{
+			"start":	0,
+			"end":	15.002674,
+			"seconds":	15.002674,
+			"bytes":	904396800,
+			"bits_per_second":	482258989.29750788,
+			"retransmits":	1234,
+			"sender":	true
+		},
+		"sum_received":	{
+			"start":	0,
+			"end":	15.012219,
+			"seconds":	15.012219,
+			"bytes":	903610368,
+			"bits_per_second":	481533272.59614319,
+			"sender":	true
+		},
+		"cpu_utilization_percent":	{
+			"host_total":	3.3307324448189854,
+			"host_user":	0.0226541899554161,
+			"host_system":	3.3080915847782237,
+			"remote_total":	18.7824506447114,
+			"remote_user":	0.71981354391199,
+			"remote_system":	18.062650423278473
+		}
+	}
+}
+
+{
+	"start":	{
+		"connected":	[{
+				"socket":	5,
+				"local_host":	"10.20.0.1",
+				"local_port":	53278,
+				"remote_host":	"10.20.0.2",
+				"remote_port":	5201
+			}],
+		"version":	"iperf 3.21",
+		"system_info":	"Darwin Mihai-Cristians-MacBook-Pro.local 25.5.0 Darwin Kernel Version 25.5.0: Tue Jun  9 22:28:34 PDT 2026; root:xnu-12377.121.10~1/RELEASE_ARM64_T6041 arm64",
+		"timestamp":	{
+			"time":	"Tue, 14 Jul 2026 21:44:21 UTC",
+			"timesecs":	1784065461,
+			"timemillisecs":	1784065461027
+		},
+		"connecting_to":	{
+			"host":	"10.20.0.2",
+			"port":	5201
+		},
+		"cookie":	"la6nushrfmcmqt7i4ktezywwbf2kt5fofqxj",
+		"tcp_mss_default":	1448,
+		"target_bitrate":	0,
+		"fq_rate":	0,
+		"sock_bufsize":	0,
+		"sndbuf_actual":	131072,
+		"rcvbuf_actual":	131072,
+		"test_start":	{
+			"protocol":	"TCP",
+			"num_streams":	1,
+			"blksize":	131072,
+			"omit":	0,
+			"duration":	15,
+			"bytes":	0,
+			"blocks":	0,
+			"reverse":	0,
+			"tos":	0,
+			"target_bitrate":	0,
+			"bidir":	0,
+			"fqrate":	0,
+			"interval":	0,
+			"gso":	0,
+			"gro":	0
+		}
+	},
+	"intervals":	[{
+			"streams":	[{
+					"socket":	5,
+					"start":	0,
+					"end":	15.00066,
+					"seconds":	15.000659942626953,
+					"bytes":	906231808,
+					"bits_per_second":	483302367.477733,
+					"retransmits":	1234,
+					"snd_cwnd":	603816,
+					"snd_wnd":	-1,
+					"rtt":	10,
+					"rttvar":	0,
+					"pmtu":	-1,
+					"reorder":	-1,
+					"omitted":	false,
+					"sender":	true
+				}],
+			"sum":	{
+				"start":	0,
+				"end":	15.00066,
+				"seconds":	15.000659942626953,
+				"bytes":	906231808,
+				"bits_per_second":	483302367.477733,
+				"retransmits":	1234,
+				"omitted":	false,
+				"sender":	true
+			}
+		}],
+	"end":	{
+		"streams":	[{
+				"sender":	{
+					"socket":	5,
+					"start":	0,
+					"end":	15.00066,
+					"seconds":	15.00066,
+					"bytes":	906231808,
+					"bits_per_second":	483302365.62924564,
+					"retransmits":	1234,
+					"reorder":	-1,
+					"max_snd_cwnd":	603816,
+					"max_snd_wnd":	0,
+					"max_rtt":	10,
+					"min_rtt":	10,
+					"mean_rtt":	10,
+					"sender":	true
+				},
+				"receiver":	{
+					"socket":	5,
+					"start":	0,
+					"end":	15.010061,
+					"seconds":	15.00066,
+					"bytes":	905445376,
+					"bits_per_second":	482580517.69409865,
+					"sender":	true
+				}
+			}],
+		"sum_sent":	{
+			"start":	0,
+			"end":	15.00066,
+			"seconds":	15.00066,
+			"bytes":	906231808,
+			"bits_per_second":	483302365.62924564,
+			"retransmits":	1234,
+			"sender":	true
+		},
+		"sum_received":	{
+			"start":	0,
+			"end":	15.010061,
+			"seconds":	15.010061,
+			"bytes":	905445376,
+			"bits_per_second":	482580517.69409865,
+			"sender":	true
+		},
+		"cpu_utilization_percent":	{
+			"host_total":	3.283385955479571,
+			"host_user":	0.022497117369361073,
+			"host_system":	3.2608955039227636,
+			"remote_total":	18.80349328337218,
+			"remote_user":	0.714260873805851,
+			"remote_system":	18.089239071764
+		}
+	}
+}
+
+{
+	"start":	{
+		"connected":	[{
+				"socket":	5,
+				"local_host":	"10.20.0.1",
+				"local_port":	53280,
+				"remote_host":	"10.20.0.2",
+				"remote_port":	5201
+			}],
+		"version":	"iperf 3.21",
+		"system_info":	"Darwin Mihai-Cristians-MacBook-Pro.local 25.5.0 Darwin Kernel Version 25.5.0: Tue Jun  9 22:28:34 PDT 2026; root:xnu-12377.121.10~1/RELEASE_ARM64_T6041 arm64",
+		"timestamp":	{
+			"time":	"Tue, 14 Jul 2026 21:44:36 UTC",
+			"timesecs":	1784065476,
+			"timemillisecs":	1784065476052
+		},
+		"connecting_to":	{
+			"host":	"10.20.0.2",
+			"port":	5201
+		},
+		"cookie":	"notlwxxto7u64um3ydesxk5ml3jquxe22cse",
+		"tcp_mss_default":	1448,
+		"target_bitrate":	0,
+		"fq_rate":	0,
+		"sock_bufsize":	0,
+		"sndbuf_actual":	131072,
+		"rcvbuf_actual":	131072,
+		"test_start":	{
+			"protocol":	"TCP",
+			"num_streams":	1,
+			"blksize":	131072,
+			"omit":	0,
+			"duration":	15,
+			"bytes":	0,
+			"blocks":	0,
+			"reverse":	0,
+			"tos":	0,
+			"target_bitrate":	0,
+			"bidir":	0,
+			"fqrate":	0,
+			"interval":	0,
+			"gso":	0,
+			"gro":	0
+		}
+	},
+	"intervals":	[{
+			"streams":	[{
+					"socket":	5,
+					"start":	0,
+					"end":	15.002897,
+					"seconds":	15.002897262573242,
+					"bytes":	903872512,
+					"bits_per_second":	481972246.38994622,
+					"retransmits":	723,
+					"snd_cwnd":	697936,
+					"snd_wnd":	-1,
+					"rtt":	10,
+					"rttvar":	0,
+					"pmtu":	-1,
+					"reorder":	-1,
+					"omitted":	false,
+					"sender":	true
+				}],
+			"sum":	{
+				"start":	0,
+				"end":	15.002897,
+				"seconds":	15.002897262573242,
+				"bytes":	903872512,
+				"bits_per_second":	481972246.38994622,
+				"retransmits":	723,
+				"omitted":	false,
+				"sender":	true
+			}
+		}],
+	"end":	{
+		"streams":	[{
+				"sender":	{
+					"socket":	5,
+					"start":	0,
+					"end":	15.002897,
+					"seconds":	15.002897,
+					"bytes":	903872512,
+					"bits_per_second":	481972254.82518476,
+					"retransmits":	723,
+					"reorder":	-1,
+					"max_snd_cwnd":	697936,
+					"max_snd_wnd":	0,
+					"max_rtt":	10,
+					"min_rtt":	10,
+					"mean_rtt":	10,
+					"sender":	true
+				},
+				"receiver":	{
+					"socket":	5,
+					"start":	0,
+					"end":	15.013941,
+					"seconds":	15.002897,
+					"bytes":	902955008,
+					"bits_per_second":	481128843.119871,
+					"sender":	true
+				}
+			}],
+		"sum_sent":	{
+			"start":	0,
+			"end":	15.002897,
+			"seconds":	15.002897,
+			"bytes":	903872512,
+			"bits_per_second":	481972254.82518476,
+			"retransmits":	723,
+			"sender":	true
+		},
+		"sum_received":	{
+			"start":	0,
+			"end":	15.013941,
+			"seconds":	15.013941,
+			"bytes":	902955008,
+			"bits_per_second":	481128843.119871,
+			"sender":	true
+		},
+		"cpu_utilization_percent":	{
+			"host_total":	3.2943506318404729,
+			"host_user":	0.0238665520503441,
+			"host_system":	3.2704974093360941,
+			"remote_total":	18.783613338614646,
+			"remote_user":	0.72314781000567274,
+			"remote_system":	18.060472189084507
+		}
+	}
+}
+
+{
+	"start":	{
+		"connected":	[{
+				"socket":	5,
+				"local_host":	"10.20.0.1",
+				"local_port":	53282,
+				"remote_host":	"10.20.0.2",
+				"remote_port":	5201
+			}],
+		"version":	"iperf 3.21",
+		"system_info":	"Darwin Mihai-Cristians-MacBook-Pro.local 25.5.0 Darwin Kernel Version 25.5.0: Tue Jun  9 22:28:34 PDT 2026; root:xnu-12377.121.10~1/RELEASE_ARM64_T6041 arm64",
+		"timestamp":	{
+			"time":	"Tue, 14 Jul 2026 21:44:51 UTC",
+			"timesecs":	1784065491,
+			"timemillisecs":	1784065491082
+		},
+		"connecting_to":	{
+			"host":	"10.20.0.2",
+			"port":	5201
+		},
+		"cookie":	"j6dotsjqg342cmgti2nvnlfnusxhrhqz4fiu",
+		"tcp_mss_default":	1448,
+		"target_bitrate":	0,
+		"fq_rate":	0,
+		"sock_bufsize":	0,
+		"sndbuf_actual":	131072,
+		"rcvbuf_actual":	131072,
+		"test_start":	{
+			"protocol":	"TCP",
+			"num_streams":	1,
+			"blksize":	131072,
+			"omit":	0,
+			"duration":	15,
+			"bytes":	0,
+			"blocks":	0,
+			"reverse":	0,
+			"tos":	0,
+			"target_bitrate":	0,
+			"bidir":	0,
+			"fqrate":	0,
+			"interval":	0,
+			"gso":	0,
+			"gro":	0
+		}
+	},
+	"intervals":	[{
+			"streams":	[{
+					"socket":	5,
+					"start":	0,
+					"end":	15.004948,
+					"seconds":	15.004947662353516,
+					"bytes":	901906432,
+					"bits_per_second":	480858155.48045,
+					"retransmits":	1036,
+					"snd_cwnd":	548792,
+					"snd_wnd":	-1,
+					"rtt":	9,
+					"rttvar":	0,
+					"pmtu":	-1,
+					"reorder":	-1,
+					"omitted":	false,
+					"sender":	true
+				}],
+			"sum":	{
+				"start":	0,
+				"end":	15.004948,
+				"seconds":	15.004947662353516,
+				"bytes":	901906432,
+				"bits_per_second":	480858155.48045,
+				"retransmits":	1036,
+				"omitted":	false,
+				"sender":	true
+			}
+		}],
+	"end":	{
+		"streams":	[{
+				"sender":	{
+					"socket":	5,
+					"start":	0,
+					"end":	15.004948,
+					"seconds":	15.004948,
+					"bytes":	901906432,
+					"bits_per_second":	480858144.66001481,
+					"retransmits":	1036,
+					"reorder":	-1,
+					"max_snd_cwnd":	548792,
+					"max_snd_wnd":	0,
+					"max_rtt":	9,
+					"min_rtt":	9,
+					"mean_rtt":	9,
+					"sender":	true
+				},
+				"receiver":	{
+					"socket":	5,
+					"start":	0,
+					"end":	15.013567,
+					"seconds":	15.004948,
+					"bytes":	901251072,
+					"bits_per_second":	480232883.764398,
+					"sender":	true
+				}
+			}],
+		"sum_sent":	{
+			"start":	0,
+			"end":	15.004948,
+			"seconds":	15.004948,
+			"bytes":	901906432,
+			"bits_per_second":	480858144.66001481,
+			"retransmits":	1036,
+			"sender":	true
+		},
+		"sum_received":	{
+			"start":	0,
+			"end":	15.013567,
+			"seconds":	15.013567,
+			"bytes":	901251072,
+			"bits_per_second":	480232883.764398,
+			"sender":	true
+		},
+		"cpu_utilization_percent":	{
+			"host_total":	3.305592142857857,
+			"host_user":	0.023750555195883771,
+			"host_system":	3.2818549156951917,
+			"remote_total":	18.61666060992297,
+			"remote_user":	0.71230902607561375,
+			"remote_system":	17.904358244489252
+		}
+	}
+}
+
+{
+	"start":	{
+		"connected":	[{
+				"socket":	5,
+				"local_host":	"10.20.0.1",
+				"local_port":	53284,
+				"remote_host":	"10.20.0.2",
+				"remote_port":	5201
+			}],
+		"version":	"iperf 3.21",
+		"system_info":	"Darwin Mihai-Cristians-MacBook-Pro.local 25.5.0 Darwin Kernel Version 25.5.0: Tue Jun  9 22:28:34 PDT 2026; root:xnu-12377.121.10~1/RELEASE_ARM64_T6041 arm64",
+		"timestamp":	{
+			"time":	"Tue, 14 Jul 2026 21:45:06 UTC",
+			"timesecs":	1784065506,
+			"timemillisecs":	1784065506110
+		},
+		"connecting_to":	{
+			"host":	"10.20.0.2",
+			"port":	5201
+		},
+		"cookie":	"cpe7xl5puhpfwknir4tafb2bkehhpuu2zci2",
+		"tcp_mss_default":	1448,
+		"target_bitrate":	0,
+		"fq_rate":	0,
+		"sock_bufsize":	0,
+		"sndbuf_actual":	131072,
+		"rcvbuf_actual":	131072,
+		"test_start":	{
+			"protocol":	"TCP",
+			"num_streams":	1,
+			"blksize":	131072,
+			"omit":	0,
+			"duration":	15,
+			"bytes":	0,
+			"blocks":	0,
+			"reverse":	0,
+			"tos":	0,
+			"target_bitrate":	0,
+			"bidir":	0,
+			"fqrate":	0,
+			"interval":	0,
+			"gso":	0,
+			"gro":	0
+		}
+	},
+	"intervals":	[{
+			"streams":	[{
+					"socket":	5,
+					"start":	0,
+					"end":	15.000053,
+					"seconds":	15.000053405761719,
+					"bytes":	907804672,
+					"bits_per_second":	484160767.93502629,
+					"retransmits":	1106,
+					"snd_cwnd":	624088,
+					"snd_wnd":	-1,
+					"rtt":	10,
+					"rttvar":	0,
+					"pmtu":	-1,
+					"reorder":	-1,
+					"omitted":	false,
+					"sender":	true
+				}],
+			"sum":	{
+				"start":	0,
+				"end":	15.000053,
+				"seconds":	15.000053405761719,
+				"bytes":	907804672,
+				"bits_per_second":	484160767.93502629,
+				"retransmits":	1106,
+				"omitted":	false,
+				"sender":	true
+			}
+		}],
+	"end":	{
+		"streams":	[{
+				"sender":	{
+					"socket":	5,
+					"start":	0,
+					"end":	15.000053,
+					"seconds":	15.000053,
+					"bytes":	907804672,
+					"bits_per_second":	484160781.031907,
+					"retransmits":	1106,
+					"reorder":	-1,
+					"max_snd_cwnd":	624088,
+					"max_snd_wnd":	0,
+					"max_rtt":	10,
+					"min_rtt":	10,
+					"mean_rtt":	10,
+					"sender":	true
+				},
+				"receiver":	{
+					"socket":	5,
+					"start":	0,
+					"end":	15.009779,
+					"seconds":	15.000053,
+					"bytes":	907018240,
+					"bits_per_second":	483427898.571991,
+					"sender":	true
+				}
+			}],
+		"sum_sent":	{
+			"start":	0,
+			"end":	15.000053,
+			"seconds":	15.000053,
+			"bytes":	907804672,
+			"bits_per_second":	484160781.031907,
+			"retransmits":	1106,
+			"sender":	true
+		},
+		"sum_received":	{
+			"start":	0,
+			"end":	15.009779,
+			"seconds":	15.009779,
+			"bytes":	907018240,
+			"bits_per_second":	483427898.571991,
+			"sender":	true
+		},
+		"cpu_utilization_percent":	{
+			"host_total":	3.3647789288001473,
+			"host_user":	0.024357965297965443,
+			"host_system":	3.3404342957218307,
+			"remote_total":	18.802394172332974,
+			"remote_user":	0.726659551305882,
+			"remote_system":	18.075747945672756
+		}
+	}
+}
+
+{
+	"start":	{
+		"connected":	[{
+				"socket":	5,
+				"local_host":	"10.20.0.1",
+				"local_port":	53286,
+				"remote_host":	"10.20.0.2",
+				"remote_port":	5201
+			}],
+		"version":	"iperf 3.21",
+		"system_info":	"Darwin Mihai-Cristians-MacBook-Pro.local 25.5.0 Darwin Kernel Version 25.5.0: Tue Jun  9 22:28:34 PDT 2026; root:xnu-12377.121.10~1/RELEASE_ARM64_T6041 arm64",
+		"timestamp":	{
+			"time":	"Tue, 14 Jul 2026 21:45:21 UTC",
+			"timesecs":	1784065521,
+			"timemillisecs":	1784065521135
+		},
+		"connecting_to":	{
+			"host":	"10.20.0.2",
+			"port":	5201
+		},
+		"cookie":	"q6mghvdc3n46w4n7fwpqkaqgzrquam6r7zbd",
+		"tcp_mss_default":	1448,
+		"target_bitrate":	0,
+		"fq_rate":	0,
+		"sock_bufsize":	0,
+		"sndbuf_actual":	131072,
+		"rcvbuf_actual":	131072,
+		"test_start":	{
+			"protocol":	"TCP",
+			"num_streams":	1,
+			"blksize":	131072,
+			"omit":	0,
+			"duration":	15,
+			"bytes":	0,
+			"blocks":	0,
+			"reverse":	0,
+			"tos":	0,
+			"target_bitrate":	0,
+			"bidir":	0,
+			"fqrate":	0,
+			"interval":	0,
+			"gso":	0,
+			"gro":	0
+		}
+	},
+	"intervals":	[{
+			"streams":	[{
+					"socket":	5,
+					"start":	0,
+					"end":	15.000534,
+					"seconds":	15.000534057617188,
+					"bytes":	899022848,
+					"bits_per_second":	479461781.58555961,
+					"retransmits":	1244,
+					"snd_cwnd":	537208,
+					"snd_wnd":	-1,
+					"rtt":	8,
+					"rttvar":	0,
+					"pmtu":	-1,
+					"reorder":	-1,
+					"omitted":	false,
+					"sender":	true
+				}],
+			"sum":	{
+				"start":	0,
+				"end":	15.000534,
+				"seconds":	15.000534057617188,
+				"bytes":	899022848,
+				"bits_per_second":	479461781.58555961,
+				"retransmits":	1244,
+				"omitted":	false,
+				"sender":	true
+			}
+		}],
+	"end":	{
+		"streams":	[{
+				"sender":	{
+					"socket":	5,
+					"start":	0,
+					"end":	15.000534,
+					"seconds":	15.000534,
+					"bytes":	899022848,
+					"bits_per_second":	479461783.42717665,
+					"retransmits":	1244,
+					"reorder":	-1,
+					"max_snd_cwnd":	537208,
+					"max_snd_wnd":	0,
+					"max_rtt":	8,
+					"min_rtt":	8,
+					"mean_rtt":	8,
+					"sender":	true
+				},
+				"receiver":	{
+					"socket":	5,
+					"start":	0,
+					"end":	15.008864,
+					"seconds":	15.000534,
+					"bytes":	898367488,
+					"bits_per_second":	478846360.65727556,
+					"sender":	true
+				}
+			}],
+		"sum_sent":	{
+			"start":	0,
+			"end":	15.000534,
+			"seconds":	15.000534,
+			"bytes":	899022848,
+			"bits_per_second":	479461783.42717665,
+			"retransmits":	1244,
+			"sender":	true
+		},
+		"sum_received":	{
+			"start":	0,
+			"end":	15.008864,
+			"seconds":	15.008864,
+			"bytes":	898367488,
+			"bits_per_second":	478846360.65727556,
+			"sender":	true
+		},
+		"cpu_utilization_percent":	{
+			"host_total":	3.2602723837343008,
+			"host_user":	0.023317466168676339,
+			"host_system":	3.2369682494502263,
+			"remote_total":	18.532831292328726,
+			"remote_user":	0.71341827467722918,
+			"remote_system":	17.8194130176515
+		}
+	}
+}
+
+{
+	"start":	{
+		"connected":	[{
+				"socket":	5,
+				"local_host":	"10.20.0.1",
+				"local_port":	53288,
+				"remote_host":	"10.20.0.2",
+				"remote_port":	5201
+			}],
+		"version":	"iperf 3.21",
+		"system_info":	"Darwin Mihai-Cristians-MacBook-Pro.local 25.5.0 Darwin Kernel Version 25.5.0: Tue Jun  9 22:28:34 PDT 2026; root:xnu-12377.121.10~1/RELEASE_ARM64_T6041 arm64",
+		"timestamp":	{
+			"time":	"Tue, 14 Jul 2026 21:45:36 UTC",
+			"timesecs":	1784065536,
+			"timemillisecs":	1784065536158
+		},
+		"connecting_to":	{
+			"host":	"10.20.0.2",
+			"port":	5201
+		},
+		"cookie":	"ah3xnkudsnm773v4rifi2ftlegcwknph6wn2",
+		"tcp_mss_default":	1448,
+		"target_bitrate":	0,
+		"fq_rate":	0,
+		"sock_bufsize":	0,
+		"sndbuf_actual":	131072,
+		"rcvbuf_actual":	131072,
+		"test_start":	{
+			"protocol":	"TCP",
+			"num_streams":	1,
+			"blksize":	131072,
+			"omit":	0,
+			"duration":	15,
+			"bytes":	0,
+			"blocks":	0,
+			"reverse":	0,
+			"tos":	0,
+			"target_bitrate":	0,
+			"bidir":	0,
+			"fqrate":	0,
+			"interval":	0,
+			"gso":	0,
+			"gro":	0
+		}
+	},
+	"intervals":	[{
+			"streams":	[{
+					"socket":	5,
+					"start":	0,
+					"end":	15.002382,
+					"seconds":	15.002382278442383,
+					"bytes":	909246464,
+					"bits_per_second":	484854443.58075762,
+					"retransmits":	1456,
+					"snd_cwnd":	605264,
+					"snd_wnd":	-1,
+					"rtt":	9,
+					"rttvar":	0,
+					"pmtu":	-1,
+					"reorder":	-1,
+					"omitted":	false,
+					"sender":	true
+				}],
+			"sum":	{
+				"start":	0,
+				"end":	15.002382,
+				"seconds":	15.002382278442383,
+				"bytes":	909246464,
+				"bits_per_second":	484854443.58075762,
+				"retransmits":	1456,
+				"omitted":	false,
+				"sender":	true
+			}
+		}],
+	"end":	{
+		"streams":	[{
+				"sender":	{
+					"socket":	5,
+					"start":	0,
+					"end":	15.002382,
+					"seconds":	15.002382,
+					"bytes":	909246464,
+					"bits_per_second":	484854452.579597,
+					"retransmits":	1456,
+					"reorder":	-1,
+					"max_snd_cwnd":	605264,
+					"max_snd_wnd":	0,
+					"max_rtt":	9,
+					"min_rtt":	9,
+					"mean_rtt":	9,
+					"sender":	true
+				},
+				"receiver":	{
+					"socket":	5,
+					"start":	0,
+					"end":	15.012693,
+					"seconds":	15.002382,
+					"bytes":	908591104,
+					"bits_per_second":	484172215.60448879,
+					"sender":	true
+				}
+			}],
+		"sum_sent":	{
+			"start":	0,
+			"end":	15.002382,
+			"seconds":	15.002382,
+			"bytes":	909246464,
+			"bits_per_second":	484854452.579597,
+			"retransmits":	1456,
+			"sender":	true
+		},
+		"sum_received":	{
+			"start":	0,
+			"end":	15.012693,
+			"seconds":	15.012693,
+			"bytes":	908591104,
+			"bits_per_second":	484172215.60448879,
+			"sender":	true
+		},
+		"cpu_utilization_percent":	{
+			"host_total":	3.2075691772842037,
+			"host_user":	0.022328153201790518,
+			"host_system":	3.18525435432313,
+			"remote_total":	18.648537121416243,
+			"remote_user":	0.71625381052502568,
+			"remote_system":	17.932283310891215
+		}
+	}
+}
+
+{
+	"start":	{
+		"connected":	[{
+				"socket":	5,
+				"local_host":	"10.20.0.1",
+				"local_port":	53290,
+				"remote_host":	"10.20.0.2",
+				"remote_port":	5201
+			}],
+		"version":	"iperf 3.21",
+		"system_info":	"Darwin Mihai-Cristians-MacBook-Pro.local 25.5.0 Darwin Kernel Version 25.5.0: Tue Jun  9 22:28:34 PDT 2026; root:xnu-12377.121.10~1/RELEASE_ARM64_T6041 arm64",
+		"timestamp":	{
+			"time":	"Tue, 14 Jul 2026 21:45:51 UTC",
+			"timesecs":	1784065551,
+			"timemillisecs":	1784065551186
+		},
+		"connecting_to":	{
+			"host":	"10.20.0.2",
+			"port":	5201
+		},
+		"cookie":	"ae7jhlztuycfesbxr64lpvlgi6kiy63hsdbi",
+		"tcp_mss_default":	1448,
+		"target_bitrate":	0,
+		"fq_rate":	0,
+		"sock_bufsize":	0,
+		"sndbuf_actual":	131072,
+		"rcvbuf_actual":	131072,
+		"test_start":	{
+			"protocol":	"TCP",
+			"num_streams":	1,
+			"blksize":	131072,
+			"omit":	0,
+			"duration":	15,
+			"bytes":	0,
+			"blocks":	0,
+			"reverse":	0,
+			"tos":	0,
+			"target_bitrate":	0,
+			"bidir":	0,
+			"fqrate":	0,
+			"interval":	0,
+			"gso":	0,
+			"gro":	0
+		}
+	},
+	"intervals":	[{
+			"streams":	[{
+					"socket":	5,
+					"start":	0,
+					"end":	15.004958,
+					"seconds":	15.004958152770996,
+					"bytes":	871497728,
+					"bits_per_second":	464645202.8066783,
+					"retransmits":	1553,
+					"snd_cwnd":	598584,
+					"snd_wnd":	-1,
+					"rtt":	11,
+					"rttvar":	0,
+					"pmtu":	-1,
+					"reorder":	-1,
+					"omitted":	false,
+					"sender":	true
+				}],
+			"sum":	{
+				"start":	0,
+				"end":	15.004958,
+				"seconds":	15.004958152770996,
+				"bytes":	871497728,
+				"bits_per_second":	464645202.8066783,
+				"retransmits":	1553,
+				"omitted":	false,
+				"sender":	true
+			}
+		}],
+	"end":	{
+		"streams":	[{
+				"sender":	{
+					"socket":	5,
+					"start":	0,
+					"end":	15.004958,
+					"seconds":	15.004958,
+					"bytes":	871497728,
+					"bits_per_second":	464645207.537402,
+					"retransmits":	1553,
+					"reorder":	-1,
+					"max_snd_cwnd":	598584,
+					"max_snd_wnd":	0,
+					"max_rtt":	11,
+					"min_rtt":	11,
+					"mean_rtt":	11,
+					"sender":	true
+				},
+				"receiver":	{
+					"socket":	5,
+					"start":	0,
+					"end":	15.014383,
+					"seconds":	15.004958,
+					"bytes":	870711296,
+					"bits_per_second":	463934506.53283584,
+					"sender":	true
+				}
+			}],
+		"sum_sent":	{
+			"start":	0,
+			"end":	15.004958,
+			"seconds":	15.004958,
+			"bytes":	871497728,
+			"bits_per_second":	464645207.537402,
+			"retransmits":	1553,
+			"sender":	true
+		},
+		"sum_received":	{
+			"start":	0,
+			"end":	15.014383,
+			"seconds":	15.014383,
+			"bytes":	870711296,
+			"bits_per_second":	463934506.53283584,
+			"sender":	true
+		},
+		"cpu_utilization_percent":	{
+			"host_total":	3.2135082713398782,
+			"host_user":	0.024156755954923559,
+			"host_system":	3.189351515384955,
+			"remote_total":	18.183302213177562,
+			"remote_user":	0.69715809205638468,
+			"remote_system":	17.486144121121178
+		}
+	}
+}
+
+{
+	"start":	{
+		"connected":	[{
+				"socket":	5,
+				"local_host":	"10.20.0.1",
+				"local_port":	53292,
+				"remote_host":	"10.20.0.2",
+				"remote_port":	5201
+			}],
+		"version":	"iperf 3.21",
+		"system_info":	"Darwin Mihai-Cristians-MacBook-Pro.local 25.5.0 Darwin Kernel Version 25.5.0: Tue Jun  9 22:28:34 PDT 2026; root:xnu-12377.121.10~1/RELEASE_ARM64_T6041 arm64",
+		"timestamp":	{
+			"time":	"Tue, 14 Jul 2026 21:46:06 UTC",
+			"timesecs":	1784065566,
+			"timemillisecs":	1784065566215
+		},
+		"connecting_to":	{
+			"host":	"10.20.0.2",
+			"port":	5201
+		},
+		"cookie":	"rxojztipvff47lossaz46gprwnckniugi2lt",
+		"tcp_mss_default":	1448,
+		"target_bitrate":	0,
+		"fq_rate":	0,
+		"sock_bufsize":	0,
+		"sndbuf_actual":	131072,
+		"rcvbuf_actual":	131072,
+		"test_start":	{
+			"protocol":	"TCP",
+			"num_streams":	1,
+			"blksize":	131072,
+			"omit":	0,
+			"duration":	15,
+			"bytes":	0,
+			"blocks":	0,
+			"reverse":	0,
+			"tos":	0,
+			"target_bitrate":	0,
+			"bidir":	0,
+			"fqrate":	0,
+			"interval":	0,
+			"gso":	0,
+			"gro":	0
+		}
+	},
+	"intervals":	[{
+			"streams":	[{
+					"socket":	5,
+					"start":	0,
+					"end":	15.000992,
+					"seconds":	15.000991821289062,
+					"bytes":	907411456,
+					"bits_per_second":	483920779.0046109,
+					"retransmits":	1169,
+					"snd_cwnd":	561824,
+					"snd_wnd":	-1,
+					"rtt":	8,
+					"rttvar":	0,
+					"pmtu":	-1,
+					"reorder":	-1,
+					"omitted":	false,
+					"sender":	true
+				}],
+			"sum":	{
+				"start":	0,
+				"end":	15.000992,
+				"seconds":	15.000991821289062,
+				"bytes":	907411456,
+				"bits_per_second":	483920779.0046109,
+				"retransmits":	1169,
+				"omitted":	false,
+				"sender":	true
+			}
+		}],
+	"end":	{
+		"streams":	[{
+				"sender":	{
+					"socket":	5,
+					"start":	0,
+					"end":	15.000992,
+					"seconds":	15.000992,
+					"bytes":	907411456,
+					"bits_per_second":	483920773.23952973,
+					"retransmits":	1169,
+					"reorder":	-1,
+					"max_snd_cwnd":	561824,
+					"max_snd_wnd":	0,
+					"max_rtt":	8,
+					"min_rtt":	8,
+					"mean_rtt":	8,
+					"sender":	true
+				},
+				"receiver":	{
+					"socket":	5,
+					"start":	0,
+					"end":	15.009181,
+					"seconds":	15.000992,
+					"bytes":	906756096,
+					"bits_per_second":	483307434.82938874,
+					"sender":	true
+				}
+			}],
+		"sum_sent":	{
+			"start":	0,
+			"end":	15.000992,
+			"seconds":	15.000992,
+			"bytes":	907411456,
+			"bits_per_second":	483920773.23952973,
+			"retransmits":	1169,
+			"sender":	true
+		},
+		"sum_received":	{
+			"start":	0,
+			"end":	15.009181,
+			"seconds":	15.009181,
+			"bytes":	906756096,
+			"bits_per_second":	483307434.82938874,
+			"sender":	true
+		},
+		"cpu_utilization_percent":	{
+			"host_total":	3.31747362664692,
+			"host_user":	0.023889878856850635,
+			"host_system":	3.293590413492876,
+			"remote_total":	18.764239199428776,
+			"remote_user":	0.70422887108512167,
+			"remote_system":	18.060010328343655
+		}
+	}
+}
+

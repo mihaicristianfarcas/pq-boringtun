@@ -49,9 +49,9 @@ transitions to a session; they live on the wire and in the scratch buffer.
 
 | N peers | Vanilla idle (KB) | Hybrid idle (KB) | Delta (KB) | Per-peer (B) |
 |---------|-------------------|------------------|------------|--------------|
-|      10 |             1 712 |            1 792 |         80 |        8 000 |
-|     100 |             2 752 |            3 392 |        640 |        6 400 |
-|   1 000 |            13 744 |           20 608 |      6 864 |        6 864 |
+|      10 |             1 728 |            1 808 |         80 |        8 000 |
+|     100 |             2 768 |            3 408 |        640 |        6 400 |
+|   1 000 |            13 744 |           20 624 |      6 880 |        6 880 |
 
 On the M4 the per-peer cost converges to ≈ 6.9 KB at N = 1 000, within 8 %
 of the 6 384-byte struct delta; the remainder is allocator chunk and page

@@ -294,9 +294,9 @@ Three configurations are compared: \textbf{Vanilla} (unmodified BoringTun, no PS
 \toprule
 \textbf{Configuration} & \textbf{Platform} & \textbf{Latency ($\mu$s, [95\% CI])} \\
 \midrule
-Vanilla   & M4              & 150.82 [150.70, 150.94] \\
-PSK-slot  & M4              & 150.99 [150.86, 151.12] \\
-Hybrid    & M4              & 247.34 [247.06, 247.63] \\
+Vanilla   & M4              & 153.55 [153.32, 153.77] \\
+PSK-slot  & M4              & 154.99 [154.75, 155.24] \\
+Hybrid    & M4              & 246.69 [246.39, 246.99] \\
 \midrule
 Vanilla   & Raspberry Pi 5  & 1312.0 [1311.9, 1312.1] \\
 PSK-slot  & Raspberry Pi 5  & 1312.0 [1311.9, 1312.1] \\
@@ -309,7 +309,7 @@ Hybrid    & Ryzen 7 5700X   & 414.91 [413.93, 415.98] \\
 \end{tabular}
 \end{table}
 
-On the M4 the hybrid adds about 97~$\mu$s over vanilla (+64\%). The isolated ML-KEM operations (KeyGen + Encaps + Decaps $\approx$ 73~$\mu$s, \cref{tab:mlkem_benchmarks}) account for most of it; the remaining $\sim$23~$\mu$s is bookkeeping around the KEM --- an extra BLAKE2s pass over the 2272 bytes of PQ transcript material, the extra HMAC-BLAKE2s mixing step, larger heap buffers. PSK-slot sits inside vanilla's confidence interval, as expected from a handful of extra HMAC calls.
+On the M4 the hybrid adds about 93~$\mu$s over vanilla (+61\%). The isolated ML-KEM operations (KeyGen + Encaps + Decaps $\approx$ 72~$\mu$s, \cref{tab:mlkem_benchmarks}) account for most of it; the remaining $\sim$21~$\mu$s is bookkeeping around the KEM --- an extra BLAKE2s pass over the 2272 bytes of PQ transcript material, the extra HMAC-BLAKE2s mixing step, larger heap buffers. PSK-slot lands about 1.4~$\mu$s (under 1\%) above vanilla, consistent with the handful of extra HMAC calls it adds; Criterion's CIs are tight enough on this platform to resolve that small gap even though it is negligible in absolute terms.
 
 The Pi tells a different story: the hybrid adds about 332~$\mu$s, but only +25\%, because the classical baseline is dominated by X25519. A single DH takes 192.54~$\mu$s there, and the six fresh DH operations per handshake (BoringTun caches the static-static result) alone account for $\sim$1155~$\mu$s of the 1312~$\mu$s vanilla figure. The three ML-KEM operations explain $\sim$282~$\mu$s of the hybrid gap, payload movement the rest.
 
@@ -341,8 +341,8 @@ Hybrid    & 1332  & 1180  & 2512 \\
 \toprule
 \textbf{Config.} & \textbf{Setup} & \textbf{Mbps} \\
 \midrule
-Vanilla & M4 loopback                     & 473.1 \\
-Hybrid  & M4 loopback                     & 469.4 \\
+Vanilla & M4 loopback                     & 478.2 \\
+Hybrid  & M4 loopback                     & 469.2 \\
 Vanilla & M4 $\rightarrow$ Raspberry Pi 5 & 85.4 \\
 Hybrid  & M4 $\rightarrow$ Raspberry Pi 5 & 79.4 \\
 \bottomrule
@@ -352,7 +352,7 @@ Hybrid  & M4 $\rightarrow$ Raspberry Pi 5 & 79.4 \\
 
 PSK-slot packet sizes equal vanilla because the PSK never appears on the wire. The hybrid carries the encapsulation key in the initiation (+1184~B) and the ciphertext in the response (+1088~B), 2272 bytes of additional handshake traffic fixed by the ML-KEM-768 specification.
 
-Throughput is statistically indistinguishable across configurations: in both setups the vanilla and hybrid 95\% confidence intervals overlap (M4 loopback: vanilla 473.1 [468.6, 477.6] vs hybrid 469.4 [466.2, 472.6]; cross-device over Wi-Fi: vanilla 85.4 [79.3, 91.5] vs hybrid 79.4 [73.6, 85.2], where the run-to-run spread reflects the wireless link rather than the Pi's crypto capacity). This parity is the only reasonable outcome --- all three configurations share the same ChaCha20-Poly1305 data plane once the handshake is done --- and any difference would point to an implementation bug.
+Throughput is statistically indistinguishable across configurations: in both setups the vanilla and hybrid 95\% confidence intervals overlap (M4 loopback: vanilla 478.2 [473.4, 483.1] vs hybrid 469.2 [462.3, 476.0]; cross-device over Wi-Fi: vanilla 85.4 [79.3, 91.5] vs hybrid 79.4 [73.6, 85.2], where the run-to-run spread reflects the wireless link rather than the Pi's crypto capacity). This parity is the only reasonable outcome --- all three configurations share the same ChaCha20-Poly1305 data plane once the handshake is done --- and any difference would point to an implementation bug.
 
 \subsection{ML-KEM and X25519 microbenchmarks}
 
@@ -366,12 +366,12 @@ Throughput is statistically indistinguishable across configurations: in both set
 \toprule
 \textbf{Operation} & \textbf{M4 ($\mu$s)} & \textbf{Raspberry Pi 5 ($\mu$s)} & \textbf{Ryzen 5700X ($\mu$s)} \\
 \midrule
-ML-KEM-768 KeyGen & 23.85 [23.82, 23.87] & 81.61 [81.60, 81.62]    & 35.83 [35.75, 35.93]    \\
-ML-KEM-768 Encaps & 21.26 [21.21, 21.32] & 84.04 [84.03, 84.04]    & 33.88 [33.76, 34.01]    \\
-ML-KEM-768 Decaps & 27.99 [27.93, 28.06] & 116.39 [116.28, 116.62] & 45.54 [45.43, 45.66]    \\
+ML-KEM-768 KeyGen & 23.88 [23.86, 23.89] & 81.61 [81.60, 81.62]    & 35.83 [35.75, 35.93]    \\
+ML-KEM-768 Encaps & 20.67 [20.65, 20.68] & 84.04 [84.03, 84.04]    & 33.88 [33.76, 34.01]    \\
+ML-KEM-768 Decaps & 27.52 [27.49, 27.55] & 116.39 [116.28, 116.62] & 45.54 [45.43, 45.66]    \\
 \midrule
-X25519 KeyGen     & 8.77 [8.76, 8.78]    & 57.98 [57.97, 57.98]    & 12.44 [12.41, 12.48]    \\
-X25519 DH         & 20.39 [20.36, 20.41] & 192.54 [192.53, 192.55] & 39.52 [39.41, 39.63]    \\
+X25519 KeyGen     & 8.63 [8.61, 8.64]    & 57.98 [57.97, 57.98]    & 12.44 [12.41, 12.48]    \\
+X25519 DH         & 19.91 [19.89, 19.94] & 192.54 [192.53, 192.55] & 39.52 [39.41, 39.63]    \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -393,15 +393,15 @@ FIPS-203 defines three parameter sets: ML-KEM-512 (NIST level 1), ML-KEM-768 (le
 \toprule
 \textbf{Param set} & \textbf{Platform} & \textbf{Keygen} & \textbf{Encaps} & \textbf{Decaps} \\
 \midrule
-ML-KEM-512  & M4              &  14.40 &  12.71 &  17.50 \\
+ML-KEM-512  & M4              &  14.69 &  12.60 &  17.45 \\
 ML-KEM-512  & Raspberry Pi 5  &  48.32 &  51.64 &  74.70 \\
 ML-KEM-512  & Ryzen 7 5700X   &  20.94 &  20.27 &  28.88 \\
 \midrule
-ML-KEM-768  & M4              &  23.85 &  21.26 &  27.99 \\
+ML-KEM-768  & M4              &  23.88 &  20.67 &  27.52 \\
 ML-KEM-768  & Raspberry Pi 5  &  81.61 &  84.04 & 116.39 \\
 ML-KEM-768  & Ryzen 7 5700X   &  35.83 &  33.88 &  45.54 \\
 \midrule
-ML-KEM-1024 & M4              &  36.84 &  31.15 &  40.79 \\
+ML-KEM-1024 & M4              &  37.31 &  31.25 &  40.89 \\
 ML-KEM-1024 & Raspberry Pi 5  & 125.61 & 127.80 & 167.42 \\
 ML-KEM-1024 & Ryzen 7 5700X   &  56.09 &  51.41 &  66.44 \\
 \bottomrule

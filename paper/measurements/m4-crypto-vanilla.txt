@@ -1,0 +1,375 @@
+warning: virtual workspace defaulting to `resolver = "1"` despite one or more workspace members being on edition 2021 which implies `resolver = "2"`
+  |
+  = note: to keep the current resolver, specify `workspace.resolver = "1"` in the workspace root's manifest
+  = note: to use the edition 2021 resolver, specify `workspace.resolver = "2"` in the workspace root's manifest
+  = note: for more details see https://doc.rust-lang.org/cargo/reference/resolver.html#resolver-versions
+   Compiling cfg-if v1.0.0
+   Compiling libc v0.2.172
+   Compiling autocfg v1.1.0
+   Compiling proc-macro2 v1.0.106
+   Compiling unicode-ident v1.0.1
+   Compiling quote v1.0.44
+   Compiling typenum v1.19.0
+   Compiling version_check v0.9.4
+   Compiling once_cell v1.13.0
+   Compiling semver v1.0.12
+   Compiling syn v1.0.98
+   Compiling unicode-xid v0.2.3
+   Compiling subtle v2.6.1
+   Compiling serde_core v1.0.228
+   Compiling serde v1.0.228
+   Compiling scopeguard v1.1.0
+   Compiling crossbeam-utils v0.8.10
+   Compiling memchr v2.5.0
+   Compiling lazy_static v1.4.0
+   Compiling rayon-core v1.9.3
+   Compiling generic-array v0.14.5
+   Compiling shlex v1.3.0
+   Compiling memoffset v0.6.5
+   Compiling crossbeam-epoch v0.9.9
+   Compiling cc v1.2.19
+   Compiling num-traits v0.2.15
+   Compiling lock_api v0.4.7
+   Compiling tracing-core v0.1.32
+   Compiling bitflags v1.3.2
+   Compiling either v1.7.0
+   Compiling rustc_version v0.4.0
+   Compiling parking_lot_core v0.9.3
+   Compiling cast v0.2.7
+   Compiling curve25519-dalek v4.1.3
+   Compiling log v0.4.17
+   Compiling ryu v1.0.10
+   Compiling smallvec v1.9.0
+   Compiling serde_json v1.0.82
+   Compiling inout v0.1.3
+   Compiling block-buffer v0.10.2
+   Compiling universal-hash v0.4.0
+   Compiling ring v0.17.14
+   Compiling getrandom v0.2.10
+   Compiling num_cpus v1.13.1
+   Compiling rand_core v0.6.4
+   Compiling crypto-common v0.1.5
+   Compiling rayon v1.5.3
+   Compiling digest v0.10.7
+   Compiling opaque-debug v0.3.0
+   Compiling unicode-width v0.1.9
+   Compiling regex-automata v0.1.10
+   Compiling plotters-backend v0.3.4
+   Compiling itoa v1.0.2
+   Compiling plotters-svg v0.3.2
+   Compiling textwrap v0.11.0
+   Compiling poly1305 v0.7.2
+   Compiling crossbeam-channel v0.5.5
+   Compiling aead v0.5.0-pre.2
+   Compiling csv-core v0.1.10
+   Compiling crossbeam-deque v0.8.1
+   Compiling itertools v0.10.3
+   Compiling ip_network v0.4.1
+   Compiling syn v2.0.114
+   Compiling same-file v1.0.6
+   Compiling regex-syntax v0.6.27
+   Compiling itoa v0.4.8
+   Compiling half v1.8.2
+   Compiling ip_network_table-deps-treebitmap v0.5.0
+   Compiling pin-project-lite v0.2.9
+   Compiling untrusted v0.9.0
+   Compiling regex v1.6.0
+   Compiling tracing-log v0.1.3
+   Compiling ip_network_table v0.2.0
+   Compiling walkdir v2.3.2
+   Compiling clap v2.34.0
+   Compiling blake2 v0.10.6
+   Compiling hmac v0.12.1
+   Compiling atty v0.2.14
+   Compiling nix v0.25.0
+   Compiling synstructure v0.12.6
+   Compiling criterion-plot v0.4.4
+   Compiling sharded-slab v0.1.4
+   Compiling bstr v0.2.17
+   Compiling serde_cbor v0.11.2
+   Compiling thread_local v1.1.4
+   Compiling hex v0.4.3
+   Compiling csv v1.1.6
+   Compiling base64 v0.13.0
+   Compiling arrayvec v0.7.2
+   Compiling ansi_term v0.12.1
+   Compiling cast v0.3.0
+   Compiling oorandom v11.1.3
+   Compiling tracing-subscriber v0.3.14
+   Compiling tinytemplate v1.2.1
+   Compiling etherparse v0.13.0
+   Compiling zeroize_derive v1.3.2
+   Compiling parking_lot v0.12.1
+   Compiling tracing-attributes v0.1.27
+   Compiling serde_derive v1.0.228
+   Compiling zeroize v1.5.6
+   Compiling tracing v0.1.40
+   Compiling plotters v0.3.2
+   Compiling cipher v0.4.3
+   Compiling chacha20 v0.9.0
+   Compiling chacha20poly1305 v0.10.0-pre.1
+   Compiling x25519-dalek v2.0.1
+   Compiling criterion v0.3.6
+   Compiling boringtun v0.7.0 (/Users/mihaicristianfarcas/Projects/pq-boringtun/boringtun)
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+   --> boringtun/src/noise/handshake.rs:535:30
+    |
+535 |         ring::constant_time::verify_slices_are_equal(
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+  --> boringtun/src/noise/rate_limiter.rs:18:26
+   |
+18 | use ring::constant_time::verify_slices_are_equal;
+   |                          ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+   --> boringtun/src/noise/rate_limiter.rs:181:13
+    |
+181 |             verify_slices_are_equal(&computed_mac1[..16], mac1)
+    |             ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+   --> boringtun/src/noise/rate_limiter.rs:194:20
+    |
+194 |                 if verify_slices_are_equal(&computed_mac2[..16], mac2).is_err() {
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `KeyBytes` is never constructed
+ --> boringtun/src/serialization.rs:1:19
+  |
+1 | pub(crate) struct KeyBytes(pub [u8; 32]);
+  |                   ^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> boringtun/src/noise/mod.rs:165:39
+    |
+165 |     pub fn parse_incoming_packet(src: &[u8]) -> Result<Packet, WireGuardError> {
+    |                                       ^^^^^            ^^^^^^ the same lifetime is hidden here
+    |                                       |
+    |                                       the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+    = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+    |
+165 |     pub fn parse_incoming_packet(src: &[u8]) -> Result<Packet<'_>, WireGuardError> {
+    |                                                              ++++
+
+warning: `boringtun` (lib) generated 6 warnings (run `cargo fix --lib -p boringtun` to apply 1 suggestion)
+    Finished `bench` profile [optimized] target(s) in 26.90s
+     Running benches/crypto_benches/main.rs (/tmp/pq-bench-target/release/deps/crypto_benches-239d5d108ae572f6)
+Gnuplot not found, using plotters backend
+Benchmarking chacha20poly1305/chacha20poly1305_ring/128
+Benchmarking chacha20poly1305/chacha20poly1305_ring/128: Warming up for 3.0000 s
+Benchmarking chacha20poly1305/chacha20poly1305_ring/128: Collecting 1000 samples in estimated 5.0526 s (30M iterations)
+Benchmarking chacha20poly1305/chacha20poly1305_ring/128: Analyzing
+chacha20poly1305/chacha20poly1305_ring/128
+                        time:   [171.25 ns 171.72 ns 172.20 ns]
+                        thrpt:  [708.87 MiB/s 710.86 MiB/s 712.83 MiB/s]
+Found 12 outliers among 1000 measurements (1.20%)
+  11 (1.10%) high mild
+  1 (0.10%) high severe
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/128
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/128: Warming up for 3.0000 s
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/128: Collecting 1000 samples in estimated 5.1213 s (20M iterations)
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/128: Analyzing
+chacha20poly1305/chacha20poly1305_non_ring/128
+                        time:   [253.39 ns 253.94 ns 254.49 ns]
+                        thrpt:  [479.67 MiB/s 480.71 MiB/s 481.74 MiB/s]
+Found 23 outliers among 1000 measurements (2.30%)
+  20 (2.00%) high mild
+  3 (0.30%) high severe
+Benchmarking chacha20poly1305/chacha20poly1305_ring/192
+Benchmarking chacha20poly1305/chacha20poly1305_ring/192: Warming up for 3.0000 s
+Benchmarking chacha20poly1305/chacha20poly1305_ring/192: Collecting 1000 samples in estimated 5.0322 s (27M iterations)
+Benchmarking chacha20poly1305/chacha20poly1305_ring/192: Analyzing
+chacha20poly1305/chacha20poly1305_ring/192
+                        time:   [183.65 ns 184.13 ns 184.61 ns]
+                        thrpt:  [991.85 MiB/s 994.44 MiB/s 997.05 MiB/s]
+Found 26 outliers among 1000 measurements (2.60%)
+  20 (2.00%) high mild
+  6 (0.60%) high severe
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/192
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/192: Warming up for 3.0000 s
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/192: Collecting 1000 samples in estimated 5.0854 s (15M iterations)
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/192: Analyzing
+chacha20poly1305/chacha20poly1305_non_ring/192
+                        time:   [336.50 ns 337.15 ns 337.80 ns]
+                        thrpt:  [542.06 MiB/s 543.10 MiB/s 544.14 MiB/s]
+Found 45 outliers among 1000 measurements (4.50%)
+  13 (1.30%) low mild
+  27 (2.70%) high mild
+  5 (0.50%) high severe
+Benchmarking chacha20poly1305/chacha20poly1305_ring/1400
+Benchmarking chacha20poly1305/chacha20poly1305_ring/1400: Warming up for 3.0000 s
+Benchmarking chacha20poly1305/chacha20poly1305_ring/1400: Collecting 1000 samples in estimated 5.3412 s (7.0M iterations)
+Benchmarking chacha20poly1305/chacha20poly1305_ring/1400: Analyzing
+chacha20poly1305/chacha20poly1305_ring/1400
+                        time:   [755.64 ns 757.23 ns 758.83 ns]
+                        thrpt:  [1.7182 GiB/s 1.7219 GiB/s 1.7255 GiB/s]
+Found 35 outliers among 1000 measurements (3.50%)
+  27 (2.70%) high mild
+  8 (0.80%) high severe
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/1400
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/1400: Warming up for 3.0000 s
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/1400: Collecting 1000 samples in estimated 5.7196 s (3.0M iterations)
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/1400: Analyzing
+chacha20poly1305/chacha20poly1305_non_ring/1400
+                        time:   [1.9036 µs 1.9069 µs 1.9101 µs]
+                        thrpt:  [698.98 MiB/s 700.18 MiB/s 701.38 MiB/s]
+Found 52 outliers among 1000 measurements (5.20%)
+  17 (1.70%) low mild
+  22 (2.20%) high mild
+  13 (1.30%) high severe
+Benchmarking chacha20poly1305/chacha20poly1305_ring/8192
+Benchmarking chacha20poly1305/chacha20poly1305_ring/8192: Warming up for 3.0000 s
+Benchmarking chacha20poly1305/chacha20poly1305_ring/8192: Collecting 1000 samples in estimated 5.7068 s (1.5M iterations)
+Benchmarking chacha20poly1305/chacha20poly1305_ring/8192: Analyzing
+chacha20poly1305/chacha20poly1305_ring/8192
+                        time:   [3.8091 µs 3.8157 µs 3.8223 µs]
+                        thrpt:  [1.9960 GiB/s 1.9995 GiB/s 2.0029 GiB/s]
+Found 62 outliers among 1000 measurements (6.20%)
+  31 (3.10%) low mild
+  28 (2.80%) high mild
+  3 (0.30%) high severe
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/8192
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/8192: Warming up for 3.0000 s
+
+Warning: Unable to complete 1000 samples in 5.0s. You may wish to increase target time to 5.3s, enable flat sampling, or reduce sample count to 680.
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/8192: Collecting 1000 samples in estimated 5.3231 s (500k iterations)
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/8192: Analyzing
+chacha20poly1305/chacha20poly1305_non_ring/8192
+                        time:   [10.648 µs 10.665 µs 10.683 µs]
+                        thrpt:  [731.29 MiB/s 732.51 MiB/s 733.73 MiB/s]
+Found 59 outliers among 1000 measurements (5.90%)
+  25 (2.50%) low mild
+  29 (2.90%) high mild
+  5 (0.50%) high severe
+
+Benchmarking blake2s_hash/blake2s_crate/32
+Benchmarking blake2s_hash/blake2s_crate/32: Warming up for 3.0000 s
+Benchmarking blake2s_hash/blake2s_crate/32: Collecting 1000 samples in estimated 5.0087 s (70M iterations)
+Benchmarking blake2s_hash/blake2s_crate/32: Analyzing
+blake2s_hash/blake2s_crate/32
+                        time:   [71.954 ns 72.085 ns 72.219 ns]
+                        thrpt:  [422.57 MiB/s 423.35 MiB/s 424.13 MiB/s]
+Found 39 outliers among 1000 measurements (3.90%)
+  2 (0.20%) low severe
+  13 (1.30%) low mild
+  18 (1.80%) high mild
+  6 (0.60%) high severe
+Benchmarking blake2s_hash/blake2s_crate/64
+Benchmarking blake2s_hash/blake2s_crate/64: Warming up for 3.0000 s
+Benchmarking blake2s_hash/blake2s_crate/64: Collecting 1000 samples in estimated 5.0188 s (70M iterations)
+Benchmarking blake2s_hash/blake2s_crate/64: Analyzing
+blake2s_hash/blake2s_crate/64
+                        time:   [71.728 ns 71.837 ns 71.948 ns]
+                        thrpt:  [848.33 MiB/s 849.63 MiB/s 850.92 MiB/s]
+Found 56 outliers among 1000 measurements (5.60%)
+  5 (0.50%) low severe
+  14 (1.40%) low mild
+  25 (2.50%) high mild
+  12 (1.20%) high severe
+Benchmarking blake2s_hash/blake2s_crate/128
+Benchmarking blake2s_hash/blake2s_crate/128: Warming up for 3.0000 s
+Benchmarking blake2s_hash/blake2s_crate/128: Collecting 1000 samples in estimated 5.0199 s (36M iterations)
+Benchmarking blake2s_hash/blake2s_crate/128: Analyzing
+blake2s_hash/blake2s_crate/128
+                        time:   [146.18 ns 146.44 ns 146.69 ns]
+                        thrpt:  [832.16 MiB/s 833.60 MiB/s 835.05 MiB/s]
+Found 8 outliers among 1000 measurements (0.80%)
+  5 (0.50%) low mild
+  1 (0.10%) high mild
+  2 (0.20%) high severe
+
+Benchmarking blake2s_hmac/blake2s_crate/16
+Benchmarking blake2s_hmac/blake2s_crate/16: Warming up for 3.0000 s
+Benchmarking blake2s_hmac/blake2s_crate/16: Collecting 1000 samples in estimated 5.1333 s (4.5M iterations)
+Benchmarking blake2s_hmac/blake2s_crate/16: Analyzing
+blake2s_hmac/blake2s_crate/16
+                        time:   [217.74 ns 218.12 ns 218.51 ns]
+                        thrpt:  [69.832 MiB/s 69.956 MiB/s 70.079 MiB/s]
+Found 60 outliers among 1000 measurements (6.00%)
+  1 (0.10%) low severe
+  9 (0.90%) low mild
+  44 (4.40%) high mild
+  6 (0.60%) high severe
+Benchmarking blake2s_hmac/blake2s_crate/32
+Benchmarking blake2s_hmac/blake2s_crate/32: Warming up for 3.0000 s
+Benchmarking blake2s_hmac/blake2s_crate/32: Collecting 1000 samples in estimated 5.5257 s (5.0M iterations)
+Benchmarking blake2s_hmac/blake2s_crate/32: Analyzing
+blake2s_hmac/blake2s_crate/32
+                        time:   [199.61 ns 200.15 ns 200.70 ns]
+                        thrpt:  [152.05 MiB/s 152.47 MiB/s 152.88 MiB/s]
+Found 25 outliers among 1000 measurements (2.50%)
+  13 (1.30%) high mild
+  12 (1.20%) high severe
+
+Benchmarking blake2s_keyed_mac/blake2s_crate/128
+Benchmarking blake2s_keyed_mac/blake2s_crate/128: Warming up for 3.0000 s
+Benchmarking blake2s_keyed_mac/blake2s_crate/128: Collecting 1000 samples in estimated 5.2456 s (5.0M iterations)
+Benchmarking blake2s_keyed_mac/blake2s_crate/128: Analyzing
+blake2s_keyed_mac/blake2s_crate/128
+                        time:   [202.19 ns 202.79 ns 203.40 ns]
+                        thrpt:  [600.14 MiB/s 601.94 MiB/s 603.73 MiB/s]
+Found 14 outliers among 1000 measurements (1.40%)
+  10 (1.00%) high mild
+  4 (0.40%) high severe
+Benchmarking blake2s_keyed_mac/blake2s_crate/1024
+Benchmarking blake2s_keyed_mac/blake2s_crate/1024: Warming up for 3.0000 s
+Benchmarking blake2s_keyed_mac/blake2s_crate/1024: Collecting 1000 samples in estimated 5.1113 s (2.5M iterations)
+Benchmarking blake2s_keyed_mac/blake2s_crate/1024: Analyzing
+blake2s_keyed_mac/blake2s_crate/1024
+                        time:   [1.1702 µs 1.1726 µs 1.1751 µs]
+                        thrpt:  [831.06 MiB/s 832.81 MiB/s 834.53 MiB/s]
+Found 26 outliers among 1000 measurements (2.60%)
+  5 (0.50%) low mild
+  18 (1.80%) high mild
+  3 (0.30%) high severe
+
+Benchmarking x25519_shared_key/x25519_shared_key_dalek
+Benchmarking x25519_shared_key/x25519_shared_key_dalek: Warming up for 3.0000 s
+Benchmarking x25519_shared_key/x25519_shared_key_dalek: Collecting 1000 samples in estimated 5.0004 s (239k iterations)
+Benchmarking x25519_shared_key/x25519_shared_key_dalek: Analyzing
+x25519_shared_key/x25519_shared_key_dalek
+                        time:   [19.885 µs 19.912 µs 19.939 µs]
+Found 16 outliers among 1000 measurements (1.60%)
+  11 (1.10%) low mild
+  5 (0.50%) high mild
+Benchmarking x25519_shared_key/x25519_shared_key_ring
+Benchmarking x25519_shared_key/x25519_shared_key_ring: Warming up for 3.0000 s
+Benchmarking x25519_shared_key/x25519_shared_key_ring: Collecting 1000 samples in estimated 5.0207 s (239k iterations)
+Benchmarking x25519_shared_key/x25519_shared_key_ring: Analyzing
+x25519_shared_key/x25519_shared_key_ring
+                        time:   [20.029 µs 20.054 µs 20.080 µs]
+Found 37 outliers among 1000 measurements (3.70%)
+  19 (1.90%) low mild
+  18 (1.80%) high mild
+
+Benchmarking x25519_public_key/x25519_public_key_dalek
+Benchmarking x25519_public_key/x25519_public_key_dalek: Warming up for 3.0000 s
+Benchmarking x25519_public_key/x25519_public_key_dalek: Collecting 1000 samples in estimated 8.6677 s (1.0M iterations)
+Benchmarking x25519_public_key/x25519_public_key_dalek: Analyzing
+x25519_public_key/x25519_public_key_dalek
+                        time:   [8.6114 µs 8.6265 µs 8.6418 µs]
+Found 27 outliers among 1000 measurements (2.70%)
+  3 (0.30%) low mild
+  20 (2.00%) high mild
+  4 (0.40%) high severe
+Benchmarking x25519_public_key/x25519_public_key_ring
+Benchmarking x25519_public_key/x25519_public_key_ring: Warming up for 3.0000 s
+Benchmarking x25519_public_key/x25519_public_key_ring: Collecting 1000 samples in estimated 7.6662 s (1.0M iterations)
+Benchmarking x25519_public_key/x25519_public_key_ring: Analyzing
+x25519_public_key/x25519_public_key_ring
+                        time:   [7.7571 µs 7.7664 µs 7.7758 µs]
+Found 38 outliers among 1000 measurements (3.80%)
+  2 (0.20%) low severe
+  16 (1.60%) low mild
+  16 (1.60%) high mild
+  4 (0.40%) high severe
+

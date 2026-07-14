@@ -1,0 +1,81 @@
+warning: virtual workspace defaulting to `resolver = "1"` despite one or more workspace members being on edition 2021 which implies `resolver = "2"`
+  |
+  = note: to keep the current resolver, specify `workspace.resolver = "1"` in the workspace root's manifest
+  = note: to use the edition 2021 resolver, specify `workspace.resolver = "2"` in the workspace root's manifest
+  = note: for more details see https://doc.rust-lang.org/cargo/reference/resolver.html#resolver-versions
+   Compiling boringtun v0.7.0 (/Users/mihaicristianfarcas/Projects/pq-boringtun/boringtun)
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+   --> boringtun/src/noise/handshake.rs:535:30
+    |
+535 |         ring::constant_time::verify_slices_are_equal(
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+    --> boringtun/src/noise/handshake.rs:1009:30
+     |
+1009 |         ring::constant_time::verify_slices_are_equal(
+     |                              ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+  --> boringtun/src/noise/rate_limiter.rs:18:26
+   |
+18 | use ring::constant_time::verify_slices_are_equal;
+   |                          ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+   --> boringtun/src/noise/rate_limiter.rs:181:13
+    |
+181 |             verify_slices_are_equal(&computed_mac1[..16], mac1)
+    |             ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+   --> boringtun/src/noise/rate_limiter.rs:194:20
+    |
+194 |                 if verify_slices_are_equal(&computed_mac2[..16], mac2).is_err() {
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `format_handshake_initiation` is never used
+   --> boringtun/src/noise/handshake.rs:722:19
+    |
+421 | impl Handshake {
+    | -------------- method in this implementation
+...
+722 |     pub(super) fn format_handshake_initiation<'a>(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: struct `KeyBytes` is never constructed
+ --> boringtun/src/serialization.rs:1:19
+  |
+1 | pub(crate) struct KeyBytes(pub [u8; 32]);
+  |                   ^^^^^^^^
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> boringtun/src/noise/mod.rs:165:39
+    |
+165 |     pub fn parse_incoming_packet(src: &[u8]) -> Result<Packet, WireGuardError> {
+    |                                       ^^^^^            ^^^^^^ the same lifetime is hidden here
+    |                                       |
+    |                                       the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+    = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+    |
+165 |     pub fn parse_incoming_packet(src: &[u8]) -> Result<Packet<'_>, WireGuardError> {
+    |                                                              ++++
+
+warning: `boringtun` (lib) generated 8 warnings (run `cargo fix --lib -p boringtun` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 3.72s
+     Running `env /tmp/pq-bench-target/release/examples/memory_probe`
+# mode=pq
+# sizeof_Tunn=17424
+# sizeof_Handshake=6936
+# baseline_rss_kb=1568
+mode,n,rss_idle_kb,rss_after_init_kb
+pq,10,1808,1808
+pq,100,3408,3408
+pq,1000,20624,20624

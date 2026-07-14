@@ -1,0 +1,11 @@
+❯ sysctl -n machdep.cpu.brand_string
+Apple M4 Pro
+❯ sysctl -n hw.ncpu hw.memsize
+14
+25769803776
+❯ sw_vers
+ProductName:		macOS
+ProductVersion:		26.5.2
+BuildVersion:		25F84
+❯ uname -a
+Darwin macbook-pro-m4.local 25.5.0 Darwin Kernel Version 25.5.0: Tue Jun  9 22:28:34 PDT 2026; root:xnu-12377.121.10~1/RELEASE_ARM64_T6041 arm64
