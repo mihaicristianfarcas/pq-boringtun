@@ -86,6 +86,13 @@ impl<'a> From<TunnResult<'a>> for wireguard_result {
                 op: result_type::WRITE_TO_TUNNEL_IPV6,
                 size: b.len(),
             },
+            // Unreachable through the FFI surface: segmentation cannot be
+            // enabled on FFI-owned tunnels (pq_path_mtu is not exposed here)
+            #[cfg(feature = "pq")]
+            TunnResult::WriteManyToNetwork(_) => wireguard_result {
+                op: result_type::WIREGUARD_ERROR,
+                size: 0,
+            },
         }
     }
 }

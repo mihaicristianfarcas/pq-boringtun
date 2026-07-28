@@ -22,4 +22,8 @@ pub enum WireGuardError {
     UnderLoad,
     #[cfg(feature = "pq")]
     MlKemDecapsulationFailed,
+    #[cfg(feature = "pq")]
+    InvalidParameter,
+    #[cfg(feature = "pq")]
+    TooManySegments,
 }

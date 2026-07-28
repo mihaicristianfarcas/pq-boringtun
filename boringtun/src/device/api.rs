@@ -168,6 +168,11 @@ fn api_get(writer: &mut BufWriter<&UnixStream>, d: &Device) -> i32 {
         writeln!(writer, "fwmark={}", fwmark);
     }
 
+    #[cfg(feature = "pq")]
+    if d.pq_path_mtu() != 0 {
+        writeln!(writer, "pq_path_mtu={}", d.pq_path_mtu());
+    }
+
     for (k, p) in d.peers.iter() {
         let p = p.lock();
         writeln!(writer, "public_key={}", encode_hex(k.as_bytes()));
@@ -252,6 +257,13 @@ fn api_set(reader: &mut BufReader<&UnixStream>, d: &mut LockReadGuard<Device>) -
                             Ok(true) => device.clear_peers(),
                             Ok(false) => {}
                             Err(_) => return EINVAL,
+                        },
+                        #[cfg(feature = "pq")]
+                        "pq_path_mtu" => match val.parse::<u16>() {
+                            Ok(mtu) if mtu == 0 || mtu >= crate::noise::PQ_MIN_PATH_MTU => {
+                                device.set_pq_path_mtu(mtu)
+                            }
+                            _ => return EINVAL,
                         },
                         "public_key" => match val.parse::<KeyBytes>() {
                             // Indicates a new peer section

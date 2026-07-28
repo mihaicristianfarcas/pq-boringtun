@@ -180,6 +180,11 @@ impl Tunn {
         let now = time.duration_since(self.timers.time_started);
         self.timers[TimeCurrent] = now;
 
+        // Partially reassembled PQ initiations are dropped once the initiator
+        // would have retransmitted anyway
+        #[cfg(feature = "pq")]
+        self.handshake.expire_pq_partial_init();
+
         self.update_session_timers(now);
 
         // Load timers only once:

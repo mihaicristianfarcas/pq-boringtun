@@ -78,6 +78,16 @@ fn main() {
             Arg::new("disable-connected-udp")
                 .long("disable-connected-udp")
                 .help("Disable connected UDP sockets to each peer"),
+            Arg::new("pq-path-mtu")
+                .takes_value(true)
+                .long("pq-path-mtu")
+                .env("WG_PQ_PATH_MTU")
+                .help(
+                    "Path MTU that post-quantum handshake messages must fit; larger \
+                     messages are split into segments (0 = never segment, minimum 256). \
+                     Only honored by builds with the pq feature",
+                )
+                .default_value("0"),
             #[cfg(target_os = "linux")]
             Arg::new("disable-multi-queue")
                 .long("disable-multi-queue")
@@ -95,6 +105,13 @@ fn main() {
     }
     let n_threads: usize = matches.value_of_t("threads").unwrap_or_else(|e| e.exit());
     let log_level: Level = matches.value_of_t("verbosity").unwrap_or_else(|e| e.exit());
+    let pq_path_mtu: u16 = matches
+        .value_of_t("pq-path-mtu")
+        .unwrap_or_else(|e| e.exit());
+    if pq_path_mtu != 0 && pq_path_mtu < 256 {
+        eprintln!("--pq-path-mtu must be 0 (disabled) or at least 256");
+        exit(1);
+    }
 
     // Create a socketpair to communicate between forked processes
     let (sock1, sock2) = UnixDatagram::pair().unwrap();
@@ -151,6 +168,7 @@ fn main() {
         use_connected_socket: !matches.is_present("disable-connected-udp"),
         #[cfg(target_os = "linux")]
         use_multi_queue: !matches.is_present("disable-multi-queue"),
+        pq_path_mtu,
     };
 
     let mut device_handle: DeviceHandle = match DeviceHandle::new(tun_name, config) {

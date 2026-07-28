@@ -38,7 +38,7 @@ use std::thread::JoinHandle;
 use crate::noise::errors::WireGuardError;
 use crate::noise::handshake::parse_handshake_anon;
 #[cfg(feature = "pq")]
-use crate::noise::handshake::parse_pq_handshake_anon;
+use crate::noise::handshake::{parse_pq_handshake_anon, parse_pq_segment0_anon};
 use crate::noise::rate_limiter::RateLimiter;
 use crate::noise::{Packet, Tunn, TunnResult};
 use crate::x25519;
@@ -116,6 +116,9 @@ pub struct DeviceConfig {
     pub use_multi_queue: bool,
     #[cfg(target_os = "linux")]
     pub uapi_fd: i32,
+    /// Path MTU that PQ handshake messages must fit (0 = never segment).
+    /// Only honored by builds with the `pq` feature.
+    pub pq_path_mtu: u16,
 }
 
 impl Default for DeviceConfig {
@@ -127,6 +130,7 @@ impl Default for DeviceConfig {
             use_multi_queue: true,
             #[cfg(target_os = "linux")]
             uapi_fd: -1,
+            pq_path_mtu: 0,
         }
     }
 }
@@ -160,7 +164,22 @@ pub struct Device {
 
     #[cfg(target_os = "linux")]
     uapi_fd: i32,
+
+    /// Device-level path MTU for PQ handshake segmentation (0 = disabled)
+    #[cfg(feature = "pq")]
+    pq_path_mtu: u16,
+
+    /// Routes init-direction segments 1..n to their peer. Keyed by the full
+    /// source socket address plus hs_id because hs_id is chosen by the remote
+    /// side and can collide across initiators. Entries are only created after
+    /// segment-0 authentication and expire after REKEY_TIMEOUT.
+    #[cfg(feature = "pq")]
+    pq_seg_routing: Mutex<PqSegRouting>,
 }
+
+/// Peer plus creation time, keyed by (source address, hs_id)
+#[cfg(feature = "pq")]
+type PqSegRouting = HashMap<(SocketAddr, u32), (Arc<Mutex<Peer>>, std::time::Instant)>;
 
 struct ThreadData {
     iface: Arc<TunSocket>,
@@ -338,6 +357,14 @@ impl Device {
             None,
         );
 
+        #[cfg(feature = "pq")]
+        let tunn = {
+            let mut tunn = tunn;
+            // Value validated at the config entry points; 0 is a no-op
+            let _ = tunn.set_pq_path_mtu(self.pq_path_mtu);
+            tunn
+        };
+
         let peer = Peer::new(tunn, next_index, endpoint, allowed_ips, preshared_key);
 
         let peer = Arc::new(Mutex::new(peer));
@@ -384,6 +411,10 @@ impl Device {
             rate_limiter: None,
             #[cfg(target_os = "linux")]
             uapi_fd,
+            #[cfg(feature = "pq")]
+            pq_path_mtu: config.pq_path_mtu,
+            #[cfg(feature = "pq")]
+            pq_seg_routing: Mutex::new(HashMap::new()),
         };
 
         if uapi_fd >= 0 {
@@ -504,6 +535,22 @@ impl Device {
         self.peers.clear();
         self.peers_by_idx.clear();
         self.peers_by_ip.clear();
+        #[cfg(feature = "pq")]
+        self.pq_seg_routing.lock().clear();
+    }
+
+    #[cfg(feature = "pq")]
+    pub(crate) fn pq_path_mtu(&self) -> u16 {
+        self.pq_path_mtu
+    }
+
+    /// Set the device-level PQ path MTU and propagate it to all peers
+    #[cfg(feature = "pq")]
+    pub(crate) fn set_pq_path_mtu(&mut self, mtu: u16) {
+        self.pq_path_mtu = mtu;
+        for peer in self.peers.values() {
+            let _ = peer.lock().tunnel.set_pq_path_mtu(mtu);
+        }
     }
 
     fn register_notifiers(&mut self) -> Result<(), Error> {
@@ -528,6 +575,12 @@ impl Device {
                 if let Some(r) = d.rate_limiter.as_ref() {
                     r.reset_count()
                 }
+                // Expire segment-routing entries the peer's handshake state
+                // has long given up on
+                #[cfg(feature = "pq")]
+                d.pq_seg_routing
+                    .lock()
+                    .retain(|_, (_, created)| created.elapsed() < crate::noise::REKEY_TIMEOUT);
                 Action::Continue
             }),
             std::time::Duration::from_secs(1),
@@ -566,6 +619,19 @@ impl Device {
                                     udp6.send_to(packet, &endpoint_addr.into()).ok()
                                 }
                             };
+                        }
+                        #[cfg(feature = "pq")]
+                        TunnResult::WriteManyToNetwork(segs) => {
+                            for seg in segs.iter() {
+                                match endpoint_addr {
+                                    SocketAddr::V4(_) => {
+                                        udp4.send_to(seg, &endpoint_addr.into()).ok()
+                                    }
+                                    SocketAddr::V6(_) => {
+                                        udp6.send_to(seg, &endpoint_addr.into()).ok()
+                                    }
+                                };
+                            }
                         }
                         _ => panic!("Unexpected result from update_timers"),
                     };
@@ -610,9 +676,10 @@ impl Device {
                     unsafe { &mut *(&mut t.src_buf[..] as *mut [u8] as *mut [MaybeUninit<u8>]) };
                 while let Ok((packet_len, addr)) = udp.recv_from(src_buf) {
                     let packet = &t.src_buf[..packet_len];
+                    let src_addr = addr.as_socket().unwrap();
                     // The rate limiter initially checks mac1 and mac2, and optionally asks to send a cookie
                     let parsed_packet = match rate_limiter.verify_packet(
-                        Some(addr.as_socket().unwrap().ip()),
+                        Some(src_addr.ip()),
                         packet,
                         &mut t.dst_buf,
                     ) {
@@ -624,6 +691,17 @@ impl Device {
                         Err(_) => continue,
                     };
 
+                    // Whether this datagram is segment 0 of an init-direction
+                    // segmented PQ handshake (a routing entry is inserted only
+                    // if the tunnel accepts it)
+                    #[cfg(feature = "pq")]
+                    let mut pq_init_seg0 = false;
+                    #[cfg(feature = "pq")]
+                    let pq_seg_key = match &parsed_packet {
+                        Packet::PqSegment(p) => Some((src_addr, p.hs_id)),
+                        _ => None,
+                    };
+
                     let peer = match &parsed_packet {
                         Packet::HandshakeInit(p) => {
                             parse_handshake_anon(private_key, public_key, p)
@@ -631,6 +709,7 @@ impl Device {
                                 .and_then(|hh| {
                                     d.peers.get(&x25519::PublicKey::from(hh.peer_static_public))
                                 })
+                                .cloned()
                         }
                         #[cfg(feature = "pq")]
                         Packet::PqHandshakeInit(ref p) => {
@@ -639,14 +718,46 @@ impl Device {
                                 .and_then(|hh| {
                                     d.peers.get(&x25519::PublicKey::from(hh.peer_static_public))
                                 })
+                                .cloned()
+                        }
+                        #[cfg(feature = "pq")]
+                        Packet::PqSegment(p) => {
+                            if p.seg_idx == 0 {
+                                // Init direction: the chunk starts with the
+                                // inner init's classical prefix; response
+                                // direction: fall back to the receiver-index
+                                // path
+                                match parse_pq_segment0_anon(private_key, public_key, p.chunk) {
+                                    Ok(hh) => {
+                                        pq_init_seg0 = true;
+                                        d.peers
+                                            .get(&x25519::PublicKey::from(hh.peer_static_public))
+                                            .cloned()
+                                    }
+                                    Err(_) => d.peers_by_idx.get(&(p.hs_id >> 8)).cloned(),
+                                }
+                            } else {
+                                let routed = d
+                                    .pq_seg_routing
+                                    .lock()
+                                    .get(&(src_addr, p.hs_id))
+                                    .map(|(peer, _)| Arc::clone(peer));
+                                routed.or_else(|| d.peers_by_idx.get(&(p.hs_id >> 8)).cloned())
+                            }
                         }
                         #[cfg(feature = "pq")]
                         Packet::PqHandshakeResponse(p) => {
-                            d.peers_by_idx.get(&(p.receiver_idx >> 8))
+                            d.peers_by_idx.get(&(p.receiver_idx >> 8)).cloned()
                         }
-                        Packet::HandshakeResponse(p) => d.peers_by_idx.get(&(p.receiver_idx >> 8)),
-                        Packet::PacketCookieReply(p) => d.peers_by_idx.get(&(p.receiver_idx >> 8)),
-                        Packet::PacketData(p) => d.peers_by_idx.get(&(p.receiver_idx >> 8)),
+                        Packet::HandshakeResponse(p) => {
+                            d.peers_by_idx.get(&(p.receiver_idx >> 8)).cloned()
+                        }
+                        Packet::PacketCookieReply(p) => {
+                            d.peers_by_idx.get(&(p.receiver_idx >> 8)).cloned()
+                        }
+                        Packet::PacketData(p) => {
+                            d.peers_by_idx.get(&(p.receiver_idx >> 8)).cloned()
+                        }
                     };
 
                     let peer = match peer {
@@ -658,15 +769,29 @@ impl Device {
 
                     // We found a peer, use it to decapsulate the message+
                     let mut flush = false; // Are there packets to send from the queue?
+                    #[cfg(feature = "pq")]
+                    let mut pq_accepted_quiet = false; // Result was Done (e.g. buffered segment)
                     match p
                         .tunnel
                         .handle_verified_packet(parsed_packet, &mut t.dst_buf[..])
                     {
-                        TunnResult::Done => {}
+                        TunnResult::Done => {
+                            #[cfg(feature = "pq")]
+                            {
+                                pq_accepted_quiet = true;
+                            }
+                        }
                         TunnResult::Err(_) => continue,
                         TunnResult::WriteToNetwork(packet) => {
                             flush = true;
                             let _: Result<_, _> = udp.send_to(packet, &addr);
+                        }
+                        #[cfg(feature = "pq")]
+                        TunnResult::WriteManyToNetwork(segs) => {
+                            flush = true;
+                            for seg in segs.iter() {
+                                let _: Result<_, _> = udp.send_to(seg, &addr);
+                            }
                         }
                         TunnResult::WriteToTunnelV4(packet, addr) => {
                             if p.is_allowed_ip(addr) {
@@ -680,22 +805,46 @@ impl Device {
                         }
                     };
 
+                    // Maintain the segment routing map: create an entry once
+                    // segment 0 authenticated; drop it once the handshake
+                    // answered (assembly complete)
+                    #[cfg(feature = "pq")]
+                    if let Some(key) = pq_seg_key {
+                        if pq_init_seg0 && pq_accepted_quiet {
+                            d.pq_seg_routing
+                                .lock()
+                                .insert(key, (Arc::clone(&peer), std::time::Instant::now()));
+                        } else if !pq_accepted_quiet {
+                            d.pq_seg_routing.lock().remove(&key);
+                        }
+                    }
+
                     if flush {
                         // Flush pending queue
-                        while let TunnResult::WriteToNetwork(packet) =
-                            p.tunnel.decapsulate(None, &[], &mut t.dst_buf[..])
-                        {
-                            let _: Result<_, _> = udp.send_to(packet, &addr);
+                        // (without `pq` the match has a single non-break arm)
+                        #[cfg_attr(not(feature = "pq"), allow(clippy::while_let_loop))]
+                        loop {
+                            match p.tunnel.decapsulate(None, &[], &mut t.dst_buf[..]) {
+                                TunnResult::WriteToNetwork(packet) => {
+                                    let _: Result<_, _> = udp.send_to(packet, &addr);
+                                }
+                                #[cfg(feature = "pq")]
+                                TunnResult::WriteManyToNetwork(segs) => {
+                                    for seg in segs.iter() {
+                                        let _: Result<_, _> = udp.send_to(seg, &addr);
+                                    }
+                                }
+                                _ => break,
+                            }
                         }
                     }
 
                     // This packet was OK, that means we want to create a connected socket for this peer
-                    let addr = addr.as_socket().unwrap();
-                    let ip_addr = addr.ip();
-                    p.set_endpoint(addr);
+                    let ip_addr = src_addr.ip();
+                    p.set_endpoint(src_addr);
                     if d.config.use_connected_socket {
                         if let Ok(sock) = p.connect_endpoint(d.listen_port, d.fwmark) {
-                            d.register_conn_handler(Arc::clone(peer), sock, ip_addr)
+                            d.register_conn_handler(Arc::clone(&peer), sock, ip_addr)
                                 .unwrap();
                         }
                     }
@@ -745,6 +894,13 @@ impl Device {
                             flush = true;
                             let _: Result<_, _> = udp.send(packet);
                         }
+                        #[cfg(feature = "pq")]
+                        TunnResult::WriteManyToNetwork(segs) => {
+                            flush = true;
+                            for seg in segs.iter() {
+                                let _: Result<_, _> = udp.send(seg);
+                            }
+                        }
                         TunnResult::WriteToTunnelV4(packet, addr) => {
                             if p.is_allowed_ip(addr) {
                                 iface.write4(packet);
@@ -759,10 +915,21 @@ impl Device {
 
                     if flush {
                         // Flush pending queue
-                        while let TunnResult::WriteToNetwork(packet) =
-                            p.tunnel.decapsulate(None, &[], &mut t.dst_buf[..])
-                        {
-                            let _: Result<_, _> = udp.send(packet);
+                        // (without `pq` the match has a single non-break arm)
+                        #[cfg_attr(not(feature = "pq"), allow(clippy::while_let_loop))]
+                        loop {
+                            match p.tunnel.decapsulate(None, &[], &mut t.dst_buf[..]) {
+                                TunnResult::WriteToNetwork(packet) => {
+                                    let _: Result<_, _> = udp.send(packet);
+                                }
+                                #[cfg(feature = "pq")]
+                                TunnResult::WriteManyToNetwork(segs) => {
+                                    for seg in segs.iter() {
+                                        let _: Result<_, _> = udp.send(seg);
+                                    }
+                                }
+                                _ => break,
+                            }
                         }
                     }
 
@@ -836,6 +1003,21 @@ impl Device {
                                 let _: Result<_, _> = udp6.send_to(packet, &addr.into());
                             } else {
                                 tracing::error!("No endpoint");
+                            }
+                        }
+                        #[cfg(feature = "pq")]
+                        TunnResult::WriteManyToNetwork(segs) => {
+                            let mut endpoint = peer.endpoint_mut();
+                            for seg in segs.iter() {
+                                if let Some(conn) = endpoint.conn.as_mut() {
+                                    let _: Result<_, _> = conn.write(seg);
+                                } else if let Some(addr @ SocketAddr::V4(_)) = endpoint.addr {
+                                    let _: Result<_, _> = udp4.send_to(seg, &addr.into());
+                                } else if let Some(addr @ SocketAddr::V6(_)) = endpoint.addr {
+                                    let _: Result<_, _> = udp6.send_to(seg, &addr.into());
+                                } else {
+                                    tracing::error!("No endpoint");
+                                }
                             }
                         }
                         _ => panic!("Unexpected result from encapsulate"),

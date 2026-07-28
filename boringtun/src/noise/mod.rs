@@ -8,6 +8,9 @@ pub mod rate_limiter;
 mod session;
 mod timers;
 
+#[cfg(feature = "pq")]
+pub(crate) use timers::REKEY_TIMEOUT;
+
 use crate::noise::errors::WireGuardError;
 use crate::noise::handshake::Handshake;
 use crate::noise::rate_limiter::RateLimiter;
@@ -48,11 +51,49 @@ pub enum TunnResult<'a> {
     WriteToNetwork(&'a mut [u8]),
     WriteToTunnelV4(&'a mut [u8], Ipv4Addr),
     WriteToTunnelV6(&'a mut [u8], Ipv6Addr),
+    /// A segmented PQ handshake message: every slice yielded by
+    /// [`SegmentedMsg::iter`] must be sent as its own datagram, in order.
+    #[cfg(feature = "pq")]
+    WriteManyToNetwork(SegmentedMsg<'a>),
 }
 
 impl<'a> From<WireGuardError> for TunnResult<'a> {
     fn from(err: WireGuardError) -> TunnResult<'a> {
         TunnResult::Err(err)
+    }
+}
+
+/// A batch of type-7 segments packed contiguously at fixed stride into the
+/// caller's destination buffer.
+#[cfg(feature = "pq")]
+#[derive(Debug)]
+pub struct SegmentedMsg<'a> {
+    buf: &'a mut [u8],
+    /// On-wire size of every segment except possibly the last
+    seg_size: usize,
+    /// On-wire size of the last segment
+    last_size: usize,
+    count: usize,
+}
+
+#[cfg(feature = "pq")]
+impl<'a> SegmentedMsg<'a> {
+    /// Iterate over the individual segments; each is one UDP datagram.
+    /// Segment 0 comes first and must be transmitted first.
+    pub fn iter(&self) -> impl Iterator<Item = &[u8]> {
+        (0..self.count).map(move |i| {
+            let off = i * self.seg_size;
+            let len = if i + 1 == self.count {
+                self.last_size
+            } else {
+                self.seg_size
+            };
+            &self.buf[off..off + len]
+        })
+    }
+
+    pub fn count(&self) -> usize {
+        self.count
     }
 }
 
@@ -71,6 +112,10 @@ pub struct Tunn {
     tx_bytes: usize,
     rx_bytes: usize,
     rate_limiter: Arc<RateLimiter>,
+    /// Operator-configured path MTU that PQ handshake messages must fit,
+    /// 0 = never segment (default)
+    #[cfg(feature = "pq")]
+    pq_path_mtu: u16,
 }
 
 type MessageType = u32;
@@ -96,6 +141,43 @@ pub(crate) const MLKEM768_CT_SIZE: usize = 1088;
 const PQ_HANDSHAKE_INIT_SZ: usize = 1332; // 148 - 32 (MACs) + 1184 (ML-KEM ek) + 32 (MACs) = 116 + 1184 + 32
 #[cfg(feature = "pq")]
 const PQ_HANDSHAKE_RESP_SZ: usize = 1180; // 92 - 32 (MACs) + 1088 (ML-KEM ct) + 32 (MACs) = 60 + 1088 + 32
+
+// PQ handshake segmentation (message type 7). A type-7 segment is:
+// type (u32 LE) | hs_id (u32 LE) | seg_idx (u8) | seg_cnt (u8) | 2 reserved
+// zero bytes | 16-byte tag | chunk | mac1 | mac2
+#[cfg(feature = "pq")]
+pub(crate) const PQ_SEGMENT: MessageType = 7;
+#[cfg(feature = "pq")]
+pub(crate) const PQ_SEG_HDR_SZ: usize = 12;
+#[cfg(feature = "pq")]
+const PQ_SEG_TAG_SZ: usize = 16;
+#[cfg(feature = "pq")]
+const PQ_SEG_MACS_SZ: usize = 32;
+#[cfg(feature = "pq")]
+pub(crate) const PQ_SEG_CHUNK_OFF: usize = PQ_SEG_HDR_SZ + PQ_SEG_TAG_SZ;
+/// Fixed per-segment overhead: header + tag + cookie MACs
+#[cfg(feature = "pq")]
+pub(crate) const PQ_SEG_OVERHEAD: usize = PQ_SEG_HDR_SZ + PQ_SEG_TAG_SZ + PQ_SEG_MACS_SZ;
+#[cfg(feature = "pq")]
+pub(crate) const PQ_MIN_SEG_CNT: usize = 2;
+#[cfg(feature = "pq")]
+pub(crate) const PQ_MAX_SEGMENTS: usize = 8;
+/// Classical prefix of a PQ init: type, sender_idx, ephemeral,
+/// encrypted_static, encrypted_timestamp
+#[cfg(feature = "pq")]
+pub(crate) const PQ_INIT_PREFIX_SZ: usize = 116;
+/// Classical prefix of a PQ response: type, sender_idx, receiver_idx,
+/// ephemeral, encrypted_nothing
+#[cfg(feature = "pq")]
+pub(crate) const PQ_RESP_PREFIX_SZ: usize = 60;
+/// Worst-case IP (IPv6, 40) + UDP (8) overhead assumed when converting a path
+/// MTU into a usable segment stride
+#[cfg(feature = "pq")]
+const PQ_IP_UDP_OVERHEAD: usize = 48;
+/// Smallest accepted `pq_path_mtu`; guarantees segment 0 can carry the full
+/// classical prefix with headroom. 0 disables segmentation entirely.
+#[cfg(feature = "pq")]
+pub const PQ_MIN_PATH_MTU: u16 = 256;
 
 #[derive(Debug)]
 pub struct HandshakeInit<'a> {
@@ -147,6 +229,20 @@ pub struct PqHandshakeResponse<'a> {
     pub mlkem_ciphertext: &'a [u8],
 }
 
+/// One segment of a segmented PQ handshake message (type 7)
+#[cfg(feature = "pq")]
+#[derive(Debug)]
+pub struct PqSegment<'a> {
+    /// Routing index: the initiator's sender_idx (init direction) or the
+    /// response's receiver_idx (response direction)
+    pub hs_id: u32,
+    pub seg_idx: u8,
+    pub seg_cnt: u8,
+    /// Per-segment authenticator over header bytes 0..12 and the chunk
+    pub tag: &'a [u8; 16],
+    pub chunk: &'a [u8],
+}
+
 /// Describes a packet from network
 #[derive(Debug)]
 pub enum Packet<'a> {
@@ -158,6 +254,8 @@ pub enum Packet<'a> {
     PqHandshakeInit(PqHandshakeInit<'a>),
     #[cfg(feature = "pq")]
     PqHandshakeResponse(PqHandshakeResponse<'a>),
+    #[cfg(feature = "pq")]
+    PqSegment(PqSegment<'a>),
 }
 
 impl Tunn {
@@ -215,6 +313,29 @@ impl Tunn {
                         .expect("length already checked above"),
                     encrypted_nothing: &src[44..60],
                     mlkem_ciphertext: &src[60..60 + MLKEM768_CT_SIZE],
+                })
+            }
+            #[cfg(feature = "pq")]
+            (PQ_SEGMENT, len) if len > PQ_SEG_OVERHEAD => {
+                let seg_idx = src[8];
+                let seg_cnt = src[9];
+                // Rigid header: reserved bytes zero, bounded segment count,
+                // index within it
+                if src[10] != 0
+                    || src[11] != 0
+                    || (seg_cnt as usize) < PQ_MIN_SEG_CNT
+                    || (seg_cnt as usize) > PQ_MAX_SEGMENTS
+                    || seg_idx >= seg_cnt
+                {
+                    return Err(WireGuardError::InvalidPacket);
+                }
+                Packet::PqSegment(PqSegment {
+                    hs_id: u32::from_le_bytes(src[4..8].try_into().unwrap()),
+                    seg_idx,
+                    seg_cnt,
+                    tag: <&[u8; 16]>::try_from(&src[PQ_SEG_HDR_SZ..PQ_SEG_CHUNK_OFF])
+                        .expect("length already checked above"),
+                    chunk: &src[PQ_SEG_CHUNK_OFF..len - PQ_SEG_MACS_SZ],
                 })
             }
             _ => return Err(WireGuardError::InvalidPacket),
@@ -279,6 +400,44 @@ impl Tunn {
             rate_limiter: rate_limiter.unwrap_or_else(|| {
                 Arc::new(RateLimiter::new(&static_public, PEER_HANDSHAKE_RATE_LIMIT))
             }),
+
+            #[cfg(feature = "pq")]
+            pq_path_mtu: 0,
+        }
+    }
+
+    /// Configure the path MTU that PQ handshake messages must fit; messages
+    /// exceeding it are split into type-7 segments. 0 (the default) disables
+    /// segmentation; nonzero values below [`PQ_MIN_PATH_MTU`] are rejected.
+    #[cfg(feature = "pq")]
+    pub fn set_pq_path_mtu(&mut self, mtu: u16) -> Result<(), WireGuardError> {
+        if mtu != 0 && mtu < PQ_MIN_PATH_MTU {
+            return Err(WireGuardError::InvalidParameter);
+        }
+        self.pq_path_mtu = mtu;
+        Ok(())
+    }
+
+    /// The stride to segment an outbound message of `msg_len` bytes with, or
+    /// None when it should be sent unsegmented. The effective MTU is the
+    /// minimum of our configured `pq_path_mtu` and the MTU implied by an
+    /// inbound segmented initiation (responder stride mirroring).
+    #[cfg(feature = "pq")]
+    fn pq_stride_for(&self, msg_len: usize, observed_stride: Option<usize>) -> Option<usize> {
+        let own_mtu = if self.pq_path_mtu == 0 {
+            None
+        } else {
+            Some(self.pq_path_mtu as usize)
+        };
+        let observed_mtu = observed_stride.map(|s| s + PQ_SEG_OVERHEAD + PQ_IP_UDP_OVERHEAD);
+        let effective = match (own_mtu, observed_mtu) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }?;
+        if msg_len + PQ_IP_UDP_OVERHEAD > effective {
+            Some(effective - PQ_IP_UDP_OVERHEAD - PQ_SEG_OVERHEAD)
+        } else {
+            None
         }
     }
 
@@ -374,6 +533,8 @@ impl Tunn {
             Packet::PqHandshakeInit(p) => self.handle_pq_handshake_init(p, dst),
             #[cfg(feature = "pq")]
             Packet::PqHandshakeResponse(p) => self.handle_pq_handshake_response(p, dst),
+            #[cfg(feature = "pq")]
+            Packet::PqSegment(p) => self.handle_pq_segment(p, dst),
         }
         .unwrap_or_else(TunnResult::from)
     }
@@ -460,7 +621,45 @@ impl Tunn {
             remote_idx = p.sender_idx
         );
 
-        let (packet, session) = self.handshake.receive_pq_handshake_initialization(p, dst)?;
+        self.handshake.receive_pq_handshake_initialization(p)?;
+
+        self.pq_send_handshake_response(dst)
+    }
+
+    /// Format the PQ handshake response for the current InitReceived state,
+    /// segmenting it when our own `pq_path_mtu` requires it or the initiation
+    /// arrived segmented (stride mirroring).
+    #[cfg(feature = "pq")]
+    fn pq_send_handshake_response<'a>(
+        &mut self,
+        dst: &'a mut [u8],
+    ) -> Result<TunnResult<'a>, WireGuardError> {
+        let observed_stride = self.handshake.pq_observed_stride();
+        let (result, session) = match self.pq_stride_for(PQ_HANDSHAKE_RESP_SZ, observed_stride) {
+            None => {
+                let (packet, session, _seg_tag_key, _hs_id) =
+                    self.handshake.format_pq_handshake_response(dst)?;
+                (TunnResult::WriteToNetwork(packet), session)
+            }
+            Some(stride) => {
+                let mut inner = [0u8; PQ_HANDSHAKE_RESP_SZ];
+                let (_, session, seg_tag_key, hs_id) =
+                    self.handshake.format_pq_handshake_response(&mut inner)?;
+                let (count, seg_size, last_size) =
+                    self.handshake
+                        .segment_pq_message(&inner, hs_id, stride, &seg_tag_key, dst)?;
+                let buf_len = seg_size * (count - 1) + last_size;
+                (
+                    TunnResult::WriteManyToNetwork(SegmentedMsg {
+                        buf: &mut dst[..buf_len],
+                        seg_size,
+                        last_size,
+                        count,
+                    }),
+                    session,
+                )
+            }
+        };
 
         let index = session.local_index();
         self.sessions[index % N_SESSIONS] = Some(session);
@@ -471,7 +670,42 @@ impl Tunn {
 
         tracing::debug!(message = "Sending pq_handshake_response", local_idx = index);
 
-        Ok(TunnResult::WriteToNetwork(packet))
+        Ok(result)
+    }
+
+    /// Handle one type-7 segment: buffer it, and on completion of the inner
+    /// message resume exactly where the unsegmented paths would.
+    #[cfg(feature = "pq")]
+    fn handle_pq_segment<'a>(
+        &mut self,
+        p: PqSegment,
+        dst: &'a mut [u8],
+    ) -> Result<TunnResult<'a>, WireGuardError> {
+        tracing::trace!(
+            message = "Received pq_segment",
+            hs_id = p.hs_id,
+            seg_idx = p.seg_idx,
+            seg_cnt = p.seg_cnt
+        );
+
+        match self.handshake.receive_pq_segment(&p)? {
+            handshake::PqSegOutcome::Buffered => Ok(TunnResult::Done),
+            handshake::PqSegOutcome::InitComplete => self.pq_send_handshake_response(dst),
+            handshake::PqSegOutcome::RespComplete(session) => {
+                let keepalive_packet = session.format_packet_data(&[], dst);
+                let l_idx = session.local_index();
+                let index = l_idx % N_SESSIONS;
+                self.sessions[index] = Some(*session);
+
+                self.timer_tick(TimerName::TimeLastPacketReceived);
+                self.timer_tick_session_established(true, index);
+                self.set_current_session(l_idx);
+
+                tracing::debug!("Sending keepalive");
+
+                Ok(TunnResult::WriteToNetwork(keepalive_packet))
+            }
+        }
     }
 
     #[cfg(feature = "pq")]
@@ -560,6 +794,45 @@ impl Tunn {
         }
 
         let starting_new_handshake = !self.handshake.is_in_progress();
+
+        // When the configured path MTU cannot carry the PQ init in one
+        // datagram, format it into a scratch buffer and emit type-7 segments
+        #[cfg(feature = "pq")]
+        if let Some(stride) = self.pq_stride_for(PQ_HANDSHAKE_INIT_SZ, None) {
+            let mut inner = [0u8; PQ_HANDSHAKE_INIT_SZ];
+            if let Err(e) = self.handshake.format_pq_handshake_initiation(&mut inner) {
+                return TunnResult::Err(e);
+            }
+            let (hs_id, seg_tag_key) = match self.handshake.current_init_seg_params() {
+                Some(params) => params,
+                None => return TunnResult::Err(WireGuardError::UnexpectedPacket),
+            };
+            let (count, seg_size, last_size) =
+                match self
+                    .handshake
+                    .segment_pq_message(&inner, hs_id, stride, &seg_tag_key, dst)
+                {
+                    Ok(v) => v,
+                    Err(e) => return TunnResult::Err(e),
+                };
+
+            tracing::debug!(
+                segments = count,
+                "Sending segmented pq_handshake_initiation"
+            );
+
+            if starting_new_handshake {
+                self.timer_tick(TimerName::TimeLastHandshakeStarted);
+            }
+            self.timer_tick(TimerName::TimeLastPacketSent);
+            let buf_len = seg_size * (count - 1) + last_size;
+            return TunnResult::WriteManyToNetwork(SegmentedMsg {
+                buf: &mut dst[..buf_len],
+                seg_size,
+                last_size,
+                count,
+            });
+        }
 
         #[cfg(feature = "pq")]
         let result = self.handshake.format_pq_handshake_initiation(dst);
@@ -896,7 +1169,10 @@ mod tests {
 
         let init = create_handshake_init(&mut my_tun);
         let packet = Tunn::parse_incoming_packet(&init).unwrap();
+        #[cfg(not(feature = "pq"))]
         assert!(matches!(packet, Packet::HandshakeInit(_)));
+        #[cfg(feature = "pq")]
+        assert!(matches!(packet, Packet::PqHandshakeInit(_)));
 
         mock_instant::MockClock::advance(REKEY_TIMEOUT);
         update_timer_results_in_handshake(&mut my_tun)
@@ -1174,5 +1450,594 @@ mod tests {
     fn mlkem_decapsulation_key_zeroized_on_drop() {
         fn assert_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
         assert_zeroize_on_drop::<ml_kem::DecapsulationKey768>();
+    }
+
+    // ---- PQ handshake segmentation tests ----
+
+    /// Collect the datagrams a TunnResult wants on the wire
+    #[cfg(feature = "pq")]
+    fn collect_datagrams(result: TunnResult) -> Vec<Vec<u8>> {
+        match result {
+            TunnResult::Done => vec![],
+            TunnResult::WriteToNetwork(p) => vec![p.to_vec()],
+            TunnResult::WriteManyToNetwork(segs) => segs.iter().map(|s| s.to_vec()).collect(),
+            r => panic!("unexpected result {:?}", r),
+        }
+    }
+
+    #[cfg(feature = "pq")]
+    fn create_two_tuns_mtu(mtu_a: u16, mtu_b: u16) -> (Tunn, Tunn) {
+        let (mut a, mut b) = create_two_tuns();
+        a.set_pq_path_mtu(mtu_a).unwrap();
+        b.set_pq_path_mtu(mtu_b).unwrap();
+        (a, b)
+    }
+
+    /// Format a handshake initiation and return its wire datagrams
+    #[cfg(feature = "pq")]
+    fn initiation_datagrams(tun: &mut Tunn) -> Vec<Vec<u8>> {
+        let mut dst = vec![0u8; 4096];
+        let dgrams = collect_datagrams(tun.format_handshake_initiation(&mut dst, true));
+        assert!(!dgrams.is_empty());
+        dgrams
+    }
+
+    /// Feed one datagram; panics on TunnResult::Err
+    #[cfg(feature = "pq")]
+    fn feed(tun: &mut Tunn, dgram: &[u8]) -> Vec<Vec<u8>> {
+        let mut dst = vec![0u8; 4096];
+        let res = tun.decapsulate(None, dgram, &mut dst);
+        if let TunnResult::Err(e) = res {
+            panic!("unexpected decapsulate error {:?}", e);
+        }
+        collect_datagrams(res)
+    }
+
+    /// Feed one datagram, expecting it to be dropped (silently or with a
+    /// local error); asserts nothing was sent in reaction
+    #[cfg(feature = "pq")]
+    fn feed_expect_drop(tun: &mut Tunn, dgram: &[u8]) {
+        let mut dst = vec![0u8; 4096];
+        match tun.decapsulate(None, dgram, &mut dst) {
+            TunnResult::Err(_) | TunnResult::Done => {}
+            r => panic!("packet should have been dropped, got {:?}", r),
+        }
+    }
+
+    /// Recompute mac1 after tampering with a handshake message/segment, the
+    /// same way an observe+inject attacker can (mac1 keys off the receiver's
+    /// public static key only). mac2 is zeroed (not under load).
+    #[cfg(feature = "pq")]
+    fn restamp_mac1(packet: &mut [u8], receiver_static_public: &x25519_dalek::PublicKey) {
+        use crate::noise::handshake::{b2s_hash, b2s_keyed_mac_16, LABEL_MAC1};
+        let mac1_off = packet.len() - 32;
+        let mac1_key = b2s_hash(LABEL_MAC1, receiver_static_public.as_bytes());
+        let mac1 = b2s_keyed_mac_16(&mac1_key, &packet[..mac1_off]);
+        packet[mac1_off..mac1_off + 16].copy_from_slice(&mac1);
+        for b in &mut packet[mac1_off + 16..] {
+            *b = 0;
+        }
+    }
+
+    /// Drive a full handshake + one data packet through the given datagram
+    /// streams and assert everything decrypts
+    #[cfg(feature = "pq")]
+    fn complete_handshake_and_data(my_tun: &mut Tunn, their_tun: &mut Tunn) {
+        let init = initiation_datagrams(my_tun);
+        let mut resp = vec![];
+        for d in &init {
+            resp.extend(feed(their_tun, d));
+        }
+        assert!(!resp.is_empty(), "responder produced no response");
+        let mut keepalive = vec![];
+        for d in &resp {
+            keepalive.extend(feed(my_tun, d));
+        }
+        assert_eq!(keepalive.len(), 1, "initiator should send one keepalive");
+        for d in &keepalive {
+            assert!(feed(their_tun, d).is_empty());
+        }
+
+        // Data flows both ways
+        let mut my_dst = [0u8; 2048];
+        let mut their_dst = [0u8; 2048];
+        let packet = create_ipv4_udp_packet();
+        let data = my_tun.encapsulate(&packet, &mut my_dst);
+        let data = if let TunnResult::WriteToNetwork(sent) = data {
+            sent
+        } else {
+            panic!("no session after segmented handshake: {:?}", data);
+        };
+        let recv = their_tun.decapsulate(None, data, &mut their_dst);
+        let recv = if let TunnResult::WriteToTunnelV4(r, _) = recv {
+            r
+        } else {
+            panic!("data packet did not decrypt: {:?}", recv);
+        };
+        assert_eq!(&packet[..], recv);
+    }
+
+    /// pq_path_mtu validation: 0 disables, 1..255 rejected, >=256 accepted
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_path_mtu_validation() {
+        let (mut tun, _) = create_two_tuns();
+        assert!(tun.set_pq_path_mtu(0).is_ok());
+        assert!(tun.set_pq_path_mtu(1).is_err());
+        assert!(tun.set_pq_path_mtu(255).is_err());
+        assert!(tun.set_pq_path_mtu(256).is_ok());
+        assert!(tun.set_pq_path_mtu(1280).is_ok());
+    }
+
+    /// At 1280 (IPv6 minimum): init splits into 2 segments, response stays
+    /// unsegmented (1228 bytes on wire <= 1280)
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_segmented_handshake_1280_both() {
+        let (mut a, mut b) = create_two_tuns_mtu(1280, 1280);
+        let init = initiation_datagrams(&mut a);
+        assert_eq!(init.len(), 2);
+        // stride = 1280 - 48 - 60 = 1172; wire sizes 1232 and 220
+        assert_eq!(init[0].len(), 1232);
+        assert_eq!(init[1].len(), 1332 - 1172 + 60);
+        assert!(init.iter().all(|d| d.len() + 48 <= 1280));
+
+        assert!(feed(&mut b, &init[0]).is_empty());
+        let resp = feed(&mut b, &init[1]);
+        assert_eq!(resp.len(), 1, "response must be unsegmented at 1280");
+        assert_eq!(resp[0].len(), PQ_HANDSHAKE_RESP_SZ);
+
+        let keepalive = feed(&mut a, &resp[0]);
+        assert_eq!(keepalive.len(), 1);
+        assert!(feed(&mut b, &keepalive[0]).is_empty());
+    }
+
+    /// At 576: init and response both split into 3 segments; full handshake
+    /// and data exchange work
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_segmented_handshake_576_both() {
+        let (mut a, mut b) = create_two_tuns_mtu(576, 576);
+        let init = initiation_datagrams(&mut a);
+        assert_eq!(init.len(), 3);
+        assert!(init.iter().all(|d| d.len() + 48 <= 576));
+
+        assert!(feed(&mut b, &init[0]).is_empty());
+        assert!(feed(&mut b, &init[1]).is_empty());
+        let resp = feed(&mut b, &init[2]);
+        assert_eq!(resp.len(), 3, "response must be segmented at 576");
+        assert!(resp.iter().all(|d| d.len() + 48 <= 576));
+
+        assert!(feed(&mut a, &resp[0]).is_empty());
+        assert!(feed(&mut a, &resp[1]).is_empty());
+        let keepalive = feed(&mut a, &resp[2]);
+        assert_eq!(keepalive.len(), 1);
+        assert!(feed(&mut b, &keepalive[0]).is_empty());
+    }
+
+    /// Full handshake + data at 1280 and 576, both-sided configuration
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_segmented_full_exchange() {
+        for mtu in [1280u16, 576] {
+            let (mut a, mut b) = create_two_tuns_mtu(mtu, mtu);
+            complete_handshake_and_data(&mut a, &mut b);
+        }
+    }
+
+    /// Single-sided configuration: only the initiator segments; the responder
+    /// mirrors the observed stride and, at 1280, still answers unsegmented
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_segmented_initiator_only() {
+        let (mut a, mut b) = create_two_tuns_mtu(1280, 0);
+        let init = initiation_datagrams(&mut a);
+        assert_eq!(init.len(), 2);
+        assert!(feed(&mut b, &init[0]).is_empty());
+        let resp = feed(&mut b, &init[1]);
+        assert_eq!(resp.len(), 1);
+        let keepalive = feed(&mut a, &resp[0]);
+        assert_eq!(keepalive.len(), 1);
+
+        // At 576 the mirrored stride forces a segmented response too
+        let (mut a, mut b) = create_two_tuns_mtu(576, 0);
+        let init = initiation_datagrams(&mut a);
+        assert_eq!(init.len(), 3);
+        assert!(feed(&mut b, &init[0]).is_empty());
+        assert!(feed(&mut b, &init[1]).is_empty());
+        let resp = feed(&mut b, &init[2]);
+        assert_eq!(resp.len(), 3, "responder must mirror the inbound stride");
+        complete_handshake_tail(&mut a, &mut b, &resp);
+    }
+
+    /// Responder-only configuration: init goes out unsegmented, the response
+    /// is segmented per the responder's own path MTU
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_segmented_responder_only() {
+        let (mut a, mut b) = create_two_tuns_mtu(0, 576);
+        let init = initiation_datagrams(&mut a);
+        assert_eq!(init.len(), 1);
+        assert_eq!(init[0].len(), PQ_HANDSHAKE_INIT_SZ);
+        let resp = feed(&mut b, &init[0]);
+        assert_eq!(resp.len(), 3);
+        complete_handshake_tail(&mut a, &mut b, &resp);
+    }
+
+    #[cfg(feature = "pq")]
+    fn complete_handshake_tail(a: &mut Tunn, b: &mut Tunn, resp: &[Vec<u8>]) {
+        let mut keepalive = vec![];
+        for d in resp {
+            keepalive.extend(feed(a, d));
+        }
+        assert_eq!(keepalive.len(), 1);
+        assert!(feed(b, &keepalive[0]).is_empty());
+    }
+
+    /// Segments 1..n may arrive in any order within the burst
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_segments_out_of_order() {
+        let (mut a, mut b) = create_two_tuns_mtu(576, 576);
+        let init = initiation_datagrams(&mut a);
+        assert_eq!(init.len(), 3);
+        // Segment 0 first (protocol requirement), then the tail reversed
+        assert!(feed(&mut b, &init[0]).is_empty());
+        assert!(feed(&mut b, &init[2]).is_empty());
+        let resp = feed(&mut b, &init[1]);
+        assert_eq!(resp.len(), 3);
+        complete_handshake_tail(&mut a, &mut b, &resp);
+    }
+
+    /// A segment arriving before its segment 0 has no routing entry and is
+    /// dropped silently; the burst still completes when re-sent in order
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_segment_before_seg0_dropped() {
+        let (mut a, mut b) = create_two_tuns_mtu(576, 576);
+        let init = initiation_datagrams(&mut a);
+        feed_expect_drop(&mut b, &init[1]);
+        // Full burst in order still completes
+        assert!(feed(&mut b, &init[0]).is_empty());
+        assert!(feed(&mut b, &init[1]).is_empty());
+        let resp = feed(&mut b, &init[2]);
+        assert_eq!(resp.len(), 3);
+    }
+
+    /// Duplicate segments are dropped (slots are write-once) without
+    /// disturbing reassembly
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_duplicate_segment_dropped() {
+        let (mut a, mut b) = create_two_tuns_mtu(576, 576);
+        let init = initiation_datagrams(&mut a);
+        assert!(feed(&mut b, &init[0]).is_empty());
+        assert!(feed(&mut b, &init[1]).is_empty());
+        feed_expect_drop(&mut b, &init[1]); // duplicate
+        let resp = feed(&mut b, &init[2]);
+        assert_eq!(resp.len(), 3);
+    }
+
+    /// A missing segment means no completion and no response
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_missing_segment_no_completion() {
+        let (mut a, mut b) = create_two_tuns_mtu(576, 576);
+        let init = initiation_datagrams(&mut a);
+        assert!(feed(&mut b, &init[0]).is_empty());
+        assert!(feed(&mut b, &init[2]).is_empty());
+        // init[1] never arrives; nothing must have been sent and no session
+        // must exist on the responder
+        let mut dst = [0u8; 2048];
+        let sent = b.encapsulate(&[], &mut dst);
+        assert!(
+            !matches!(sent, TunnResult::WriteToNetwork(p) if p[0] == 4),
+            "responder must not have a session"
+        );
+    }
+
+    /// A forged segment with valid mac1 but corrupted payload fails the
+    /// per-segment tag, buffers nothing, and the real handshake completes
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_forged_segment_bad_tag_buffers_nothing() {
+        let my_secret_key = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+        let my_public_key = x25519_dalek::PublicKey::from(&my_secret_key);
+        let their_secret_key = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+        let their_public_key = x25519_dalek::PublicKey::from(&their_secret_key);
+        let mut a = Tunn::new(
+            my_secret_key,
+            their_public_key,
+            None,
+            None,
+            OsRng.next_u32(),
+            None,
+        );
+        let mut b = Tunn::new(
+            their_secret_key,
+            my_public_key,
+            None,
+            None,
+            OsRng.next_u32(),
+            None,
+        );
+        a.set_pq_path_mtu(576).unwrap();
+        b.set_pq_path_mtu(576).unwrap();
+
+        let init = initiation_datagrams(&mut a);
+        assert!(feed(&mut b, &init[0]).is_empty());
+
+        // Attacker corrupts a chunk byte in segment 1 and restamps mac1
+        let mut forged = init[1].clone();
+        forged[PQ_SEG_CHUNK_OFF + 5] ^= 0xff;
+        restamp_mac1(&mut forged, &their_public_key);
+        feed_expect_drop(&mut b, &forged);
+
+        // Header tampering: flip seg_cnt on segment 1 and restamp mac1
+        let mut forged = init[1].clone();
+        forged[9] = 4; // real seg_cnt is 3
+        restamp_mac1(&mut forged, &their_public_key);
+        feed_expect_drop(&mut b, &forged);
+
+        // The genuine segments still complete the handshake
+        assert!(feed(&mut b, &init[1]).is_empty());
+        let resp = feed(&mut b, &init[2]);
+        assert_eq!(resp.len(), 3);
+        complete_handshake_tail(&mut a, &mut b, &resp);
+    }
+
+    /// §5 regression: an observer truncating a captured type-5 init,
+    /// retyping it to 1 and recomputing mac1 must be rejected under the
+    /// classical chain WITHOUT consuming the timestamp — the genuine init
+    /// must still be accepted afterwards.
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_truncate_retype_rejected_without_timestamp_burn() {
+        let my_secret_key = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+        let my_public_key = x25519_dalek::PublicKey::from(&my_secret_key);
+        let their_secret_key = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+        let their_public_key = x25519_dalek::PublicKey::from(&their_secret_key);
+        let mut a = Tunn::new(
+            my_secret_key,
+            their_public_key,
+            None,
+            None,
+            OsRng.next_u32(),
+            None,
+        );
+        let mut b = Tunn::new(
+            their_secret_key,
+            my_public_key,
+            None,
+            None,
+            OsRng.next_u32(),
+            None,
+        );
+
+        let init = create_handshake_init(&mut a);
+        assert_eq!(init.len(), PQ_HANDSHAKE_INIT_SZ);
+
+        // Truncate to classical size, retype to 1, recompute mac1
+        let mut forged = init[..HANDSHAKE_INIT_SZ].to_vec();
+        forged[0] = HANDSHAKE_INIT as u8;
+        restamp_mac1(&mut forged, &their_public_key);
+        feed_expect_drop(&mut b, &forged);
+
+        // The real init must still complete (timestamp was not consumed)
+        let resp = feed(&mut b, &init);
+        assert_eq!(resp.len(), 1);
+        assert_eq!(resp[0].len(), PQ_HANDSHAKE_RESP_SZ);
+    }
+
+    /// §5 guard: a classical type-2 response against an outstanding PQ
+    /// initiation is rejected by the state machine, not just by AEAD failure
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_classical_response_rejected_by_guard() {
+        let my_secret_key = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+        let my_public_key = x25519_dalek::PublicKey::from(&my_secret_key);
+        let their_secret_key = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+        let their_public_key = x25519_dalek::PublicKey::from(&their_secret_key);
+        let mut a = Tunn::new(
+            my_secret_key,
+            their_public_key,
+            None,
+            None,
+            OsRng.next_u32(),
+            None,
+        );
+
+        let init = create_handshake_init(&mut a);
+        let initiator_index = u32::from_le_bytes(init[4..8].try_into().unwrap());
+
+        // Forge a classical response addressed at the outstanding PQ init
+        let mut forged = vec![0u8; HANDSHAKE_RESP_SZ];
+        forged[0..4].copy_from_slice(&HANDSHAKE_RESP.to_le_bytes());
+        forged[4..8].copy_from_slice(&999u32.to_le_bytes());
+        forged[8..12].copy_from_slice(&initiator_index.to_le_bytes());
+        // any 32 bytes parse as an ephemeral
+        forged[12..44].copy_from_slice(&[7u8; 32]);
+        restamp_mac1(&mut forged, &my_public_key);
+
+        let mut dst = [0u8; 2048];
+        let res = a.decapsulate(None, &forged, &mut dst);
+        assert!(
+            matches!(res, TunnResult::Err(WireGuardError::WrongPacketType)),
+            "guard must reject the classical response explicitly, got {:?}",
+            res
+        );
+    }
+
+    /// Swapping the responder ephemeral in response segment 0 changes the
+    /// tag-key anchor, so the tag fails and nothing is buffered; the genuine
+    /// response still completes the handshake
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_response_ephemeral_swap_rejected() {
+        let my_secret_key = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+        let my_public_key = x25519_dalek::PublicKey::from(&my_secret_key);
+        let their_secret_key = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+        let their_public_key = x25519_dalek::PublicKey::from(&their_secret_key);
+        let mut a = Tunn::new(
+            my_secret_key,
+            their_public_key,
+            None,
+            None,
+            OsRng.next_u32(),
+            None,
+        );
+        let mut b = Tunn::new(
+            their_secret_key,
+            my_public_key,
+            None,
+            None,
+            OsRng.next_u32(),
+            None,
+        );
+        a.set_pq_path_mtu(576).unwrap();
+        b.set_pq_path_mtu(576).unwrap();
+
+        let init = initiation_datagrams(&mut a);
+        let mut resp = vec![];
+        for d in &init {
+            resp.extend(feed(&mut b, d));
+        }
+        assert_eq!(resp.len(), 3);
+
+        // Tamper the ephemeral inside response segment 0's chunk
+        let mut forged = resp[0].clone();
+        forged[PQ_SEG_CHUNK_OFF + 12] ^= 0xff;
+        restamp_mac1(&mut forged, &my_public_key);
+        feed_expect_drop(&mut a, &forged);
+
+        // Genuine response still completes
+        complete_handshake_tail(&mut a, &mut b, &resp);
+    }
+
+    /// Segments replayed from a previous handshake are rejected: segment 0
+    /// by the timestamp replay check, later segments for lack of a slot
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_segment_replay_from_previous_handshake() {
+        let (mut a, mut b) = create_two_tuns_mtu(576, 576);
+        let old_init = initiation_datagrams(&mut a);
+        let mut resp = vec![];
+        for d in &old_init {
+            resp.extend(feed(&mut b, d));
+        }
+        complete_handshake_tail(&mut a, &mut b, &resp);
+
+        // Replay the old segments against the completed responder
+        feed_expect_drop(&mut b, &old_init[0]);
+        feed_expect_drop(&mut b, &old_init[1]);
+
+        // A fresh handshake still works (advance the mock clock so the new
+        // initiation carries a later timestamp than the replayed one)
+        #[cfg(feature = "mock-instant")]
+        mock_instant::MockClock::advance(Duration::from_secs(1));
+        complete_handshake_and_data(&mut a, &mut b);
+    }
+
+    /// The partial-init slot is a single slot: a newer authenticated
+    /// segment 0 replaces the old partial and the new handshake completes
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_partial_init_slot_replacement() {
+        let (mut a, mut b) = create_two_tuns_mtu(576, 576);
+        let init_a = initiation_datagrams(&mut a);
+        assert!(feed(&mut b, &init_a[0]).is_empty());
+
+        // Initiator retransmits: a fresh handshake with fresh index and keys
+        // (under mock-instant the clock must move for a fresh timestamp)
+        #[cfg(feature = "mock-instant")]
+        mock_instant::MockClock::advance(Duration::from_secs(1));
+        let init_b = initiation_datagrams(&mut a);
+        assert!(feed(&mut b, &init_b[0]).is_empty());
+        assert!(feed(&mut b, &init_b[1]).is_empty());
+        let resp = feed(&mut b, &init_b[2]);
+        assert_eq!(resp.len(), 3);
+        complete_handshake_tail(&mut a, &mut b, &resp);
+
+        // Leftover segments of the replaced handshake are now dropped
+        feed_expect_drop(&mut b, &init_a[1]);
+    }
+
+    /// With pq_path_mtu unset the wire behavior is unsegmented end to end
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_unset_mtu_never_segments() {
+        let (mut a, mut b) = create_two_tuns();
+        let init = initiation_datagrams(&mut a);
+        assert_eq!(init.len(), 1);
+        assert_eq!(init[0].len(), PQ_HANDSHAKE_INIT_SZ);
+        let resp = feed(&mut b, &init[0]);
+        assert_eq!(resp.len(), 1);
+        assert_eq!(resp[0].len(), PQ_HANDSHAKE_RESP_SZ);
+    }
+
+    /// The device routes an inbound segment 0 to a peer by decrypting the
+    /// inner init's static field, exactly as it does for an unsegmented
+    /// init. Segments 1..n and response-direction segments carry no static
+    /// field, so the same call must fail and let the device fall back to its
+    /// receiver-index table.
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_segment0_peer_lookup() {
+        use crate::noise::handshake::parse_pq_segment0_anon;
+
+        let a_secret = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+        let a_public = x25519_dalek::PublicKey::from(&a_secret);
+        let b_secret = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+        let b_public = x25519_dalek::PublicKey::from(&b_secret);
+
+        let mut a = Tunn::new(a_secret, b_public, None, None, OsRng.next_u32(), None);
+        let mut b = Tunn::new(
+            b_secret.clone(),
+            a_public,
+            None,
+            None,
+            OsRng.next_u32(),
+            None,
+        );
+        // 576 segments both directions
+        a.set_pq_path_mtu(576).unwrap();
+        b.set_pq_path_mtu(576).unwrap();
+
+        /// The chunk a device hands to the anon parser: everything between the
+        /// segment header+tag and the trailing mac1/mac2
+        fn chunk_of(dgram: &[u8]) -> &[u8] {
+            &dgram[PQ_SEG_CHUNK_OFF..dgram.len() - PQ_SEG_MACS_SZ]
+        }
+
+        let init = initiation_datagrams(&mut a);
+        assert!(init.len() > 1, "expected a segmented init");
+
+        // Segment 0 identifies the initiator to the responder
+        let hh = parse_pq_segment0_anon(&b_secret, &b_public, chunk_of(&init[0]))
+            .expect("segment 0 should resolve the initiator's static key");
+        assert_eq!(hh.peer_static_public, *a_public.as_bytes());
+
+        // Later segments carry ciphertext only
+        for seg in &init[1..] {
+            assert!(parse_pq_segment0_anon(&b_secret, &b_public, chunk_of(seg)).is_err());
+        }
+
+        // Response-direction segment 0 has no static field either: the device
+        // falls back to peers_by_idx for it
+        let mut resp = vec![];
+        for d in &init {
+            resp.extend(feed(&mut b, d));
+        }
+        assert!(resp.len() > 1, "expected a segmented response");
+        for seg in &resp {
+            assert!(parse_pq_segment0_anon(&b_secret, &b_public, chunk_of(seg)).is_err());
+        }
+
+        // ...and the handshake still completes over those segments
+        let mut keepalive = vec![];
+        for d in &resp {
+            keepalive.extend(feed(&mut a, d));
+        }
+        assert_eq!(keepalive.len(), 1);
     }
 }

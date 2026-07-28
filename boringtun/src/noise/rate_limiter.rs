@@ -170,6 +170,9 @@ impl RateLimiter {
             Packet::PqHandshakeResponse(super::PqHandshakeResponse { sender_idx, .. }) => {
                 Some(*sender_idx)
             }
+            // hs_id doubles as the sender_idx for cookie replies
+            #[cfg(feature = "pq")]
+            Packet::PqSegment(super::PqSegment { hs_id, .. }) => Some(*hs_id),
             _ => None,
         };
 
