@@ -8,7 +8,8 @@ pub mod rate_limiter;
 mod session;
 mod timers;
 
-#[cfg(feature = "pq")]
+// Used by the device layer to expire stale PQ segment routing entries
+#[cfg(all(feature = "pq", feature = "device"))]
 pub(crate) use timers::REKEY_TIMEOUT;
 
 use crate::noise::errors::WireGuardError;
