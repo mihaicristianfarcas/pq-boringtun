@@ -1,0 +1,153 @@
+# crypto_benches, --features pq, 2026-07-29T06:53:23Z
+# macOS 26.5.2
+# Apple M4 Pro
+
+warning: virtual workspace defaulting to `resolver = "1"` despite one or more workspace members being on edition 2021 which implies `resolver = "2"`
+  |
+  = note: to keep the current resolver, specify `workspace.resolver = "1"` in the workspace root's manifest
+  = note: to use the edition 2021 resolver, specify `workspace.resolver = "2"` in the workspace root's manifest
+  = note: for more details see https://doc.rust-lang.org/cargo/reference/resolver.html#resolver-versions
+   Compiling boringtun v0.7.0 (/Users/mihaicristianfarcas/Projects/pq-boringtun/boringtun)
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+    --> boringtun/src/noise/handshake.rs:2511:26
+     |
+2511 |     ring::constant_time::verify_slices_are_equal(&tag, packet.tag)
+     |                          ^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+   --> boringtun/src/noise/handshake.rs:755:30
+    |
+755 |         ring::constant_time::verify_slices_are_equal(
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+    --> boringtun/src/noise/handshake.rs:1257:30
+     |
+1257 |         ring::constant_time::verify_slices_are_equal(
+     |                              ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+    --> boringtun/src/noise/handshake.rs:1696:30
+     |
+1696 |         ring::constant_time::verify_slices_are_equal(
+     |                              ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+  --> boringtun/src/noise/rate_limiter.rs:18:26
+   |
+18 | use ring::constant_time::verify_slices_are_equal;
+   |                          ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+   --> boringtun/src/noise/rate_limiter.rs:192:13
+    |
+192 |             verify_slices_are_equal(&computed_mac1[..16], mac1)
+    |             ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+   --> boringtun/src/noise/rate_limiter.rs:205:20
+    |
+205 |                 if verify_slices_are_equal(&computed_mac2[..16], mac2).is_err() {
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `format_handshake_initiation` is never used
+   --> boringtun/src/noise/handshake.rs:954:19
+    |
+641 | impl Handshake {
+    | -------------- method in this implementation
+...
+954 |     pub(super) fn format_handshake_initiation<'a>(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: struct `KeyBytes` is never constructed
+ --> boringtun/src/serialization.rs:1:19
+  |
+1 | pub(crate) struct KeyBytes(pub [u8; 32]);
+  |                   ^^^^^^^^
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> boringtun/src/noise/mod.rs:338:39
+    |
+338 |     pub fn parse_incoming_packet(src: &[u8]) -> Result<Packet, WireGuardError> {
+    |                                       ^^^^^            ^^^^^^ the same lifetime is hidden here
+    |                                       |
+    |                                       the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+    = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+    |
+338 |     pub fn parse_incoming_packet(src: &[u8]) -> Result<Packet<'_>, WireGuardError> {
+    |                                                              ++++
+
+warning: `boringtun` (lib) generated 10 warnings (run `cargo fix --lib -p boringtun` to apply 1 suggestion)
+    Finished `bench` profile [optimized] target(s) in 14.09s
+     Running benches/crypto_benches/main.rs (target/release/deps/crypto_benches-c3f0d91c9baca23e)
+Gnuplot not found, using plotters backend
+Benchmarking x25519_shared_key/x25519_shared_key_dalek
+Benchmarking x25519_shared_key/x25519_shared_key_dalek: Warming up for 3.0000 s
+Benchmarking x25519_shared_key/x25519_shared_key_dalek: Collecting 1000 samples in estimated 5.0184 s (243k iterations)
+Benchmarking x25519_shared_key/x25519_shared_key_dalek: Analyzing
+x25519_shared_key/x25519_shared_key_dalek
+                        time:   [19.919 µs 19.940 µs 19.959 µs]
+                        change: [-0.0028% +0.1636% +0.3284%] (p = 0.05 > 0.05)
+                        No change in performance detected.
+Found 80 outliers among 1000 measurements (8.00%)
+  35 (3.50%) low severe
+  44 (4.40%) low mild
+  1 (0.10%) high severe
+Benchmarking x25519_shared_key/x25519_shared_key_ring
+Benchmarking x25519_shared_key/x25519_shared_key_ring: Warming up for 3.0000 s
+
+Warning: Unable to complete 1000 samples in 5.0s. You may wish to increase target time to 9.0s, enable flat sampling, or reduce sample count to 520.
+Benchmarking x25519_shared_key/x25519_shared_key_ring: Collecting 1000 samples in estimated 8.9680 s (500k iterations)
+Benchmarking x25519_shared_key/x25519_shared_key_ring: Analyzing
+x25519_shared_key/x25519_shared_key_ring
+                        time:   [16.982 µs 16.997 µs 17.012 µs]
+                        change: [-1.5276% -1.4072% -1.2857%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 107 outliers among 1000 measurements (10.70%)
+  22 (2.20%) low severe
+  59 (5.90%) low mild
+  15 (1.50%) high mild
+  11 (1.10%) high severe
+
+Benchmarking mlkem768/keygen
+Benchmarking mlkem768/keygen: Warming up for 3.0000 s
+Benchmarking mlkem768/keygen: Collecting 1000 samples in estimated 5.0215 s (209k iterations)
+Benchmarking mlkem768/keygen: Analyzing
+mlkem768/keygen         time:   [24.050 µs 24.069 µs 24.089 µs]
+                        change: [-0.6041% -0.4543% -0.2973%] (p = 0.00 < 0.05)
+                        Change within noise threshold.
+Found 93 outliers among 1000 measurements (9.30%)
+  17 (1.70%) low severe
+  71 (7.10%) low mild
+  3 (0.30%) high mild
+  2 (0.20%) high severe
+Benchmarking mlkem768/encaps
+Benchmarking mlkem768/encaps: Warming up for 3.0000 s
+Benchmarking mlkem768/encaps: Collecting 1000 samples in estimated 5.0185 s (250k iterations)
+Benchmarking mlkem768/encaps: Analyzing
+mlkem768/encaps         time:   [20.156 µs 20.166 µs 20.176 µs]
+                        change: [-2.5455% -2.4260% -2.3121%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 54 outliers among 1000 measurements (5.40%)
+  4 (0.40%) low severe
+  42 (4.20%) low mild
+  5 (0.50%) high mild
+  3 (0.30%) high severe
+Benchmarking mlkem768/decaps
+Benchmarking mlkem768/decaps: Warming up for 3.0000 s
+Benchmarking mlkem768/decaps: Collecting 1000 samples in estimated 5.0105 s (104k iterations)
+Benchmarking mlkem768/decaps: Analyzing
+mlkem768/decaps         time:   [27.634 µs 27.655 µs 27.675 µs]
+                        change: [+0.6903% +0.8322% +0.9764%] (p = 0.00 < 0.05)
+                        Change within noise threshold.
+Found 10 outliers among 1000 measurements (1.00%)
+  4 (0.40%) low mild
+  6 (0.60%) high mild
+

@@ -1,0 +1,403 @@
+# crypto_benches, --features pq, 2026-07-29T06:46:29Z
+# Debian GNU/Linux 13 (trixie), kernel 6.18.34+rpt-rpi-2712
+# Raspberry Pi 5 Model B Rev 1.1 (Cortex-A76, 4 cores)
+
+warning: virtual workspace defaulting to `resolver = "1"` despite one or more workspace members being on edition 2021 which implies `resolver = "2"`
+  |
+  = note: to keep the current resolver, specify `workspace.resolver = "1"` in the workspace root's manifest
+  = note: to use the edition 2021 resolver, specify `workspace.resolver = "2"` in the workspace root's manifest
+  = note: for more details see https://doc.rust-lang.org/cargo/reference/resolver.html#resolver-versions
+   Compiling boringtun v0.7.0 (/home/mihaicristianfarcas/Projects/pq-boringtun/boringtun)
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+    --> boringtun/src/noise/handshake.rs:2511:26
+     |
+2511 |     ring::constant_time::verify_slices_are_equal(&tag, packet.tag)
+     |                          ^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+   --> boringtun/src/noise/handshake.rs:755:30
+    |
+755 |         ring::constant_time::verify_slices_are_equal(
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+    --> boringtun/src/noise/handshake.rs:1257:30
+     |
+1257 |         ring::constant_time::verify_slices_are_equal(
+     |                              ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+    --> boringtun/src/noise/handshake.rs:1696:30
+     |
+1696 |         ring::constant_time::verify_slices_are_equal(
+     |                              ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+  --> boringtun/src/noise/rate_limiter.rs:18:26
+   |
+18 | use ring::constant_time::verify_slices_are_equal;
+   |                          ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+   --> boringtun/src/noise/rate_limiter.rs:192:13
+    |
+192 |             verify_slices_are_equal(&computed_mac1[..16], mac1)
+    |             ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `ring::deprecated_constant_time::verify_slices_are_equal`: To be removed. Internal function not intended for external use with no promises regarding side channels.
+   --> boringtun/src/noise/rate_limiter.rs:205:20
+    |
+205 |                 if verify_slices_are_equal(&computed_mac2[..16], mac2).is_err() {
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `format_handshake_initiation` is never used
+   --> boringtun/src/noise/handshake.rs:954:19
+    |
+641 | impl Handshake {
+    | -------------- method in this implementation
+...
+954 |     pub(super) fn format_handshake_initiation<'a>(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: struct `KeyBytes` is never constructed
+ --> boringtun/src/serialization.rs:1:19
+  |
+1 | pub(crate) struct KeyBytes(pub [u8; 32]);
+  |                   ^^^^^^^^
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> boringtun/src/noise/mod.rs:338:39
+    |
+338 |     pub fn parse_incoming_packet(src: &[u8]) -> Result<Packet, WireGuardError> {
+    |                                       ^^^^^            ^^^^^^ the same lifetime is hidden here
+    |                                       |
+    |                                       the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+    = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+    |
+338 |     pub fn parse_incoming_packet(src: &[u8]) -> Result<Packet<'_>, WireGuardError> {
+    |                                                              ++++
+
+warning: `boringtun` (lib) generated 10 warnings (run `cargo fix --lib -p boringtun` to apply 1 suggestion)
+    Finished `bench` profile [optimized] target(s) in 38.80s
+     Running benches/crypto_benches/main.rs (target/release/deps/crypto_benches-1be93496a307709f)
+Gnuplot not found, using plotters backend
+Benchmarking chacha20poly1305/chacha20poly1305_ring/128
+Benchmarking chacha20poly1305/chacha20poly1305_ring/128: Warming up for 3.0000 s
+Benchmarking chacha20poly1305/chacha20poly1305_ring/128: Collecting 1000 samples in estimated 5.1094 s (11M iterations)
+Benchmarking chacha20poly1305/chacha20poly1305_ring/128: Analyzing
+chacha20poly1305/chacha20poly1305_ring/128
+                        time:   [486.35 ns 486.44 ns 486.54 ns]
+                        thrpt:  [250.90 MiB/s 250.95 MiB/s 250.99 MiB/s]
+                 change:
+                        time:   [+0.7900% +0.8085% +0.8268%] (p = 0.00 < 0.05)
+                        thrpt:  [-0.8200% -0.8020% -0.7838%]
+                        Change within noise threshold.
+Found 4 outliers among 1000 measurements (0.40%)
+  2 (0.20%) high mild
+  2 (0.20%) high severe
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/128
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/128: Warming up for 3.0000 s
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/128: Collecting 1000 samples in estimated 5.1654 s (7.5M iterations)
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/128: Analyzing
+chacha20poly1305/chacha20poly1305_non_ring/128
+                        time:   [689.03 ns 689.08 ns 689.14 ns]
+                        thrpt:  [177.14 MiB/s 177.15 MiB/s 177.16 MiB/s]
+                 change:
+                        time:   [-0.8581% -0.8360% -0.8092%] (p = 0.00 < 0.05)
+                        thrpt:  [+0.8158% +0.8431% +0.8655%]
+                        Change within noise threshold.
+Found 51 outliers among 1000 measurements (5.10%)
+  20 (2.00%) low mild
+  12 (1.20%) high mild
+  19 (1.90%) high severe
+Benchmarking chacha20poly1305/chacha20poly1305_ring/192
+Benchmarking chacha20poly1305/chacha20poly1305_ring/192: Warming up for 3.0000 s
+Benchmarking chacha20poly1305/chacha20poly1305_ring/192: Collecting 1000 samples in estimated 5.1798 s (8.0M iterations)
+Benchmarking chacha20poly1305/chacha20poly1305_ring/192: Analyzing
+chacha20poly1305/chacha20poly1305_ring/192
+                        time:   [646.86 ns 646.91 ns 646.95 ns]
+                        thrpt:  [283.03 MiB/s 283.05 MiB/s 283.07 MiB/s]
+                 change:
+                        time:   [+0.3359% +0.3543% +0.3732%] (p = 0.00 < 0.05)
+                        thrpt:  [-0.3718% -0.3530% -0.3348%]
+                        Change within noise threshold.
+Found 130 outliers among 1000 measurements (13.00%)
+  40 (4.00%) low severe
+  25 (2.50%) low mild
+  35 (3.50%) high mild
+  30 (3.00%) high severe
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/192
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/192: Warming up for 3.0000 s
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/192: Collecting 1000 samples in estimated 5.3665 s (6.0M iterations)
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/192: Analyzing
+chacha20poly1305/chacha20poly1305_non_ring/192
+                        time:   [895.48 ns 895.56 ns 895.65 ns]
+                        thrpt:  [204.44 MiB/s 204.46 MiB/s 204.48 MiB/s]
+                 change:
+                        time:   [-0.2664% -0.2481% -0.2304%] (p = 0.00 < 0.05)
+                        thrpt:  [+0.2309% +0.2487% +0.2671%]
+                        Change within noise threshold.
+Found 55 outliers among 1000 measurements (5.50%)
+  7 (0.70%) low severe
+  23 (2.30%) low mild
+  10 (1.00%) high mild
+  15 (1.50%) high severe
+Benchmarking chacha20poly1305/chacha20poly1305_ring/1400
+Benchmarking chacha20poly1305/chacha20poly1305_ring/1400: Warming up for 3.0000 s
+Benchmarking chacha20poly1305/chacha20poly1305_ring/1400: Collecting 1000 samples in estimated 5.6199 s (2.5M iterations)
+Benchmarking chacha20poly1305/chacha20poly1305_ring/1400: Analyzing
+chacha20poly1305/chacha20poly1305_ring/1400
+                        time:   [2.2459 µs 2.2460 µs 2.2462 µs]
+                        thrpt:  [594.40 MiB/s 594.44 MiB/s 594.47 MiB/s]
+                 change:
+                        time:   [+0.2193% +0.2295% +0.2402%] (p = 0.00 < 0.05)
+                        thrpt:  [-0.2396% -0.2290% -0.2188%]
+                        Change within noise threshold.
+Found 28 outliers among 1000 measurements (2.80%)
+  11 (1.10%) high mild
+  17 (1.70%) high severe
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/1400
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/1400: Warming up for 3.0000 s
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/1400: Collecting 1000 samples in estimated 7.3215 s (1.5M iterations)
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/1400: Analyzing
+chacha20poly1305/chacha20poly1305_non_ring/1400
+                        time:   [4.8766 µs 4.8777 µs 4.8787 µs]
+                        thrpt:  [273.67 MiB/s 273.73 MiB/s 273.78 MiB/s]
+                 change:
+                        time:   [+0.7168% +0.7413% +0.7653%] (p = 0.00 < 0.05)
+                        thrpt:  [-0.7595% -0.7359% -0.7117%]
+                        Change within noise threshold.
+Found 249 outliers among 1000 measurements (24.90%)
+  228 (22.80%) low severe
+  8 (0.80%) low mild
+  2 (0.20%) high mild
+  11 (1.10%) high severe
+Benchmarking chacha20poly1305/chacha20poly1305_ring/8192
+Benchmarking chacha20poly1305/chacha20poly1305_ring/8192: Warming up for 3.0000 s
+
+Warning: Unable to complete 1000 samples in 5.0s. You may wish to increase target time to 5.3s, enable flat sampling, or reduce sample count to 680.
+Benchmarking chacha20poly1305/chacha20poly1305_ring/8192: Collecting 1000 samples in estimated 5.3494 s (500k iterations)
+Benchmarking chacha20poly1305/chacha20poly1305_ring/8192: Analyzing
+chacha20poly1305/chacha20poly1305_ring/8192
+                        time:   [10.687 µs 10.688 µs 10.689 µs]
+                        thrpt:  [730.92 MiB/s 730.97 MiB/s 731.01 MiB/s]
+                 change:
+                        time:   [+0.0228% +0.0338% +0.0438%] (p = 0.00 < 0.05)
+                        thrpt:  [-0.0437% -0.0338% -0.0228%]
+                        Change within noise threshold.
+Found 125 outliers among 1000 measurements (12.50%)
+  35 (3.50%) low severe
+  20 (2.00%) low mild
+  29 (2.90%) high mild
+  41 (4.10%) high severe
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/8192
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/8192: Warming up for 3.0000 s
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/8192: Collecting 1000 samples in estimated 5.0000 s (186k iterations)
+Benchmarking chacha20poly1305/chacha20poly1305_non_ring/8192: Analyzing
+chacha20poly1305/chacha20poly1305_non_ring/8192
+                        time:   [26.839 µs 26.858 µs 26.890 µs]
+                        thrpt:  [290.53 MiB/s 290.88 MiB/s 291.08 MiB/s]
+                 change:
+                        time:   [+0.2930% +0.3686% +0.4958%] (p = 0.00 < 0.05)
+                        thrpt:  [-0.4934% -0.3673% -0.2921%]
+                        Change within noise threshold.
+Found 2 outliers among 1000 measurements (0.20%)
+  1 (0.10%) high mild
+  1 (0.10%) high severe
+
+Benchmarking blake2s_hash/blake2s_crate/32
+Benchmarking blake2s_hash/blake2s_crate/32: Warming up for 3.0000 s
+Benchmarking blake2s_hash/blake2s_crate/32: Collecting 1000 samples in estimated 5.0538 s (28M iterations)
+Benchmarking blake2s_hash/blake2s_crate/32: Analyzing
+blake2s_hash/blake2s_crate/32
+                        time:   [183.57 ns 183.59 ns 183.61 ns]
+                        thrpt:  [166.21 MiB/s 166.22 MiB/s 166.24 MiB/s]
+                 change:
+                        time:   [-0.1424% -0.1189% -0.0963%] (p = 0.00 < 0.05)
+                        thrpt:  [+0.0964% +0.1190% +0.1426%]
+                        Change within noise threshold.
+Found 74 outliers among 1000 measurements (7.40%)
+  16 (1.60%) low severe
+  16 (1.60%) low mild
+  28 (2.80%) high mild
+  14 (1.40%) high severe
+Benchmarking blake2s_hash/blake2s_crate/64
+Benchmarking blake2s_hash/blake2s_crate/64: Warming up for 3.0000 s
+Benchmarking blake2s_hash/blake2s_crate/64: Collecting 1000 samples in estimated 5.0698 s (28M iterations)
+Benchmarking blake2s_hash/blake2s_crate/64: Analyzing
+blake2s_hash/blake2s_crate/64
+                        time:   [183.66 ns 183.71 ns 183.76 ns]
+                        thrpt:  [332.15 MiB/s 332.24 MiB/s 332.32 MiB/s]
+                 change:
+                        time:   [+0.9113% +0.9494% +0.9866%] (p = 0.00 < 0.05)
+                        thrpt:  [-0.9769% -0.9405% -0.9031%]
+                        Change within noise threshold.
+Found 2 outliers among 1000 measurements (0.20%)
+  1 (0.10%) high mild
+  1 (0.10%) high severe
+Benchmarking blake2s_hash/blake2s_crate/128
+Benchmarking blake2s_hash/blake2s_crate/128: Warming up for 3.0000 s
+Benchmarking blake2s_hash/blake2s_crate/128: Collecting 1000 samples in estimated 5.0750 s (15M iterations)
+Benchmarking blake2s_hash/blake2s_crate/128: Analyzing
+blake2s_hash/blake2s_crate/128
+                        time:   [348.94 ns 349.00 ns 349.07 ns]
+                        thrpt:  [349.71 MiB/s 349.77 MiB/s 349.83 MiB/s]
+                 change:
+                        time:   [-0.0573% -0.0389% -0.0202%] (p = 0.00 < 0.05)
+                        thrpt:  [+0.0202% +0.0389% +0.0573%]
+                        Change within noise threshold.
+Found 27 outliers among 1000 measurements (2.70%)
+  17 (1.70%) high mild
+  10 (1.00%) high severe
+
+Benchmarking blake2s_hmac/blake2s_crate/16
+Benchmarking blake2s_hmac/blake2s_crate/16: Warming up for 3.0000 s
+Benchmarking blake2s_hmac/blake2s_crate/16: Collecting 1000 samples in estimated 5.3732 s (5.5M iterations)
+Benchmarking blake2s_hmac/blake2s_crate/16: Analyzing
+blake2s_hmac/blake2s_crate/16
+                        time:   [532.34 ns 532.39 ns 532.43 ns]
+                        thrpt:  [28.659 MiB/s 28.661 MiB/s 28.664 MiB/s]
+                 change:
+                        time:   [-0.2931% -0.2261% -0.1615%] (p = 0.00 < 0.05)
+                        thrpt:  [+0.1618% +0.2266% +0.2940%]
+                        Change within noise threshold.
+Found 57 outliers among 1000 measurements (5.70%)
+  4 (0.40%) low mild
+  25 (2.50%) high mild
+  28 (2.80%) high severe
+Benchmarking blake2s_hmac/blake2s_crate/32
+Benchmarking blake2s_hmac/blake2s_crate/32: Warming up for 3.0000 s
+Benchmarking blake2s_hmac/blake2s_crate/32: Collecting 1000 samples in estimated 5.3727 s (5.5M iterations)
+Benchmarking blake2s_hmac/blake2s_crate/32: Analyzing
+blake2s_hmac/blake2s_crate/32
+                        time:   [528.66 ns 528.77 ns 528.88 ns]
+                        thrpt:  [57.702 MiB/s 57.715 MiB/s 57.727 MiB/s]
+                 change:
+                        time:   [-0.6653% -0.5929% -0.5080%] (p = 0.00 < 0.05)
+                        thrpt:  [+0.5106% +0.5964% +0.6697%]
+                        Change within noise threshold.
+Found 163 outliers among 1000 measurements (16.30%)
+  34 (3.40%) high mild
+  129 (12.90%) high severe
+
+Benchmarking blake2s_keyed_mac/blake2s_crate/128
+Benchmarking blake2s_keyed_mac/blake2s_crate/128: Warming up for 3.0000 s
+Benchmarking blake2s_keyed_mac/blake2s_crate/128: Collecting 1000 samples in estimated 5.2417 s (5.5M iterations)
+Benchmarking blake2s_keyed_mac/blake2s_crate/128: Analyzing
+blake2s_keyed_mac/blake2s_crate/128
+                        time:   [527.76 ns 527.93 ns 528.09 ns]
+                        thrpt:  [231.16 MiB/s 231.23 MiB/s 231.30 MiB/s]
+                 change:
+                        time:   [+0.4289% +0.5173% +0.5967%] (p = 0.00 < 0.05)
+                        thrpt:  [-0.5931% -0.5146% -0.4271%]
+                        Change within noise threshold.
+Found 8 outliers among 1000 measurements (0.80%)
+  6 (0.60%) high mild
+  2 (0.20%) high severe
+Benchmarking blake2s_keyed_mac/blake2s_crate/1024
+Benchmarking blake2s_keyed_mac/blake2s_crate/1024: Warming up for 3.0000 s
+Benchmarking blake2s_keyed_mac/blake2s_crate/1024: Collecting 1000 samples in estimated 6.5749 s (2.0M iterations)
+Benchmarking blake2s_keyed_mac/blake2s_crate/1024: Analyzing
+blake2s_keyed_mac/blake2s_crate/1024
+                        time:   [2.8707 µs 2.8709 µs 2.8710 µs]
+                        thrpt:  [340.14 MiB/s 340.16 MiB/s 340.18 MiB/s]
+                 change:
+                        time:   [-0.0103% +0.0189% +0.0466%] (p = 0.21 > 0.05)
+                        thrpt:  [-0.0466% -0.0189% +0.0103%]
+                        No change in performance detected.
+Found 69 outliers among 1000 measurements (6.90%)
+  16 (1.60%) low severe
+  6 (0.60%) low mild
+  14 (1.40%) high mild
+  33 (3.30%) high severe
+
+Benchmarking x25519_shared_key/x25519_shared_key_dalek
+Benchmarking x25519_shared_key/x25519_shared_key_dalek: Warming up for 3.0000 s
+Benchmarking x25519_shared_key/x25519_shared_key_dalek: Collecting 1000 samples in estimated 5.0272 s (26k iterations)
+Benchmarking x25519_shared_key/x25519_shared_key_dalek: Analyzing
+x25519_shared_key/x25519_shared_key_dalek
+                        time:   [192.82 µs 192.83 µs 192.84 µs]
+                        change: [+0.1433% +0.1515% +0.1591%] (p = 0.00 < 0.05)
+                        Change within noise threshold.
+Found 32 outliers among 1000 measurements (3.20%)
+  1 (0.10%) low mild
+  12 (1.20%) high mild
+  19 (1.90%) high severe
+Benchmarking x25519_shared_key/x25519_shared_key_ring
+Benchmarking x25519_shared_key/x25519_shared_key_ring: Warming up for 3.0000 s
+Benchmarking x25519_shared_key/x25519_shared_key_ring: Collecting 1000 samples in estimated 5.0237 s (32k iterations)
+Benchmarking x25519_shared_key/x25519_shared_key_ring: Analyzing
+x25519_shared_key/x25519_shared_key_ring
+                        time:   [156.57 µs 156.58 µs 156.59 µs]
+                        change: [-0.0350% -0.0270% -0.0184%] (p = 0.00 < 0.05)
+                        Change within noise threshold.
+Found 30 outliers among 1000 measurements (3.00%)
+  8 (0.80%) high mild
+  22 (2.20%) high severe
+
+Benchmarking x25519_public_key/x25519_public_key_dalek
+Benchmarking x25519_public_key/x25519_public_key_dalek: Warming up for 3.0000 s
+Benchmarking x25519_public_key/x25519_public_key_dalek: Collecting 1000 samples in estimated 5.0451 s (87k iterations)
+Benchmarking x25519_public_key/x25519_public_key_dalek: Analyzing
+x25519_public_key/x25519_public_key_dalek
+                        time:   [57.991 µs 57.994 µs 57.998 µs]
+                        change: [+0.0202% +0.0331% +0.0460%] (p = 0.00 < 0.05)
+                        Change within noise threshold.
+Found 81 outliers among 1000 measurements (8.10%)
+  43 (4.30%) low severe
+  5 (0.50%) low mild
+  9 (0.90%) high mild
+  24 (2.40%) high severe
+Benchmarking x25519_public_key/x25519_public_key_ring
+Benchmarking x25519_public_key/x25519_public_key_ring: Warming up for 3.0000 s
+Benchmarking x25519_public_key/x25519_public_key_ring: Collecting 1000 samples in estimated 5.0191 s (83k iterations)
+Benchmarking x25519_public_key/x25519_public_key_ring: Analyzing
+x25519_public_key/x25519_public_key_ring
+                        time:   [60.469 µs 60.472 µs 60.476 µs]
+                        change: [+0.1571% +0.1658% +0.1745%] (p = 0.00 < 0.05)
+                        Change within noise threshold.
+Found 44 outliers among 1000 measurements (4.40%)
+  22 (2.20%) high mild
+  22 (2.20%) high severe
+
+Benchmarking mlkem768/keygen
+Benchmarking mlkem768/keygen: Warming up for 3.0000 s
+Benchmarking mlkem768/keygen: Collecting 1000 samples in estimated 5.0158 s (61k iterations)
+Benchmarking mlkem768/keygen: Analyzing
+mlkem768/keygen         time:   [82.220 µs 82.228 µs 82.236 µs]
+                        change: [+0.7394% +0.7541% +0.7692%] (p = 0.00 < 0.05)
+                        Change within noise threshold.
+Found 9 outliers among 1000 measurements (0.90%)
+  2 (0.20%) low mild
+  2 (0.20%) high mild
+  5 (0.50%) high severe
+Benchmarking mlkem768/encaps
+Benchmarking mlkem768/encaps: Warming up for 3.0000 s
+Benchmarking mlkem768/encaps: Collecting 1000 samples in estimated 5.0651 s (60k iterations)
+Benchmarking mlkem768/encaps: Analyzing
+mlkem768/encaps         time:   [84.315 µs 84.319 µs 84.325 µs]
+                        change: [+0.3285% +0.3375% +0.3462%] (p = 0.00 < 0.05)
+                        Change within noise threshold.
+Found 30 outliers among 1000 measurements (3.00%)
+  1 (0.10%) low mild
+  9 (0.90%) high mild
+  20 (2.00%) high severe
+Benchmarking mlkem768/decaps
+Benchmarking mlkem768/decaps: Warming up for 3.0000 s
+Benchmarking mlkem768/decaps: Collecting 1000 samples in estimated 5.0454 s (25k iterations)
+Benchmarking mlkem768/decaps: Analyzing
+mlkem768/decaps         time:   [116.01 µs 116.02 µs 116.04 µs]
+                        change: [-0.5117% -0.3162% -0.2128%] (p = 0.00 < 0.05)
+                        Change within noise threshold.
+Found 21 outliers among 1000 measurements (2.10%)
+  1 (0.10%) low mild
+  6 (0.60%) high mild
+  14 (1.40%) high severe
+
