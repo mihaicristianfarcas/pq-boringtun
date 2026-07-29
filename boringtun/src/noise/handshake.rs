@@ -43,6 +43,33 @@ const INITIAL_CHAIN_HASH: [u8; KEY_LEN] = [
     147, 232, 183, 14, 225, 156, 101, 186, 7, 158, 243,
 ];
 
+// PQ transcripts are domain-separated from classical ones so that a truncated
+// and retyped PQ init can never decrypt under the classical chain (and vice
+// versa). The IDENTIFIER is unchanged; only the CONSTRUCTION differs:
+// CONSTRUCTION_PQ = "Noise_IKpsk2_25519+MLKEM768_ChaChaPoly_BLAKE2s"
+// (referenced by the pinning test that ties the constants below to their
+// derivation)
+#[cfg(feature = "pq")]
+#[allow(dead_code)]
+pub(crate) const CONSTRUCTION_PQ: &[u8] = b"Noise_IKpsk2_25519+MLKEM768_ChaChaPoly_BLAKE2s";
+#[cfg(feature = "pq")]
+#[allow(dead_code)]
+pub(crate) const IDENTIFIER: &[u8] = b"WireGuard v1 zx2c4 Jason@zx2c4.com";
+
+// initiator.chaining_key = HASH(CONSTRUCTION_PQ)
+#[cfg(feature = "pq")]
+const INITIAL_CHAIN_KEY_PQ: [u8; KEY_LEN] = [
+    92, 212, 118, 82, 10, 10, 246, 131, 71, 61, 77, 160, 151, 184, 203, 249, 86, 84, 163, 106, 11,
+    2, 99, 179, 63, 208, 66, 103, 187, 164, 135, 172,
+];
+
+// initiator.chaining_hash = HASH(initiator.chaining_key || IDENTIFIER)
+#[cfg(feature = "pq")]
+const INITIAL_CHAIN_HASH_PQ: [u8; KEY_LEN] = [
+    230, 124, 28, 213, 149, 146, 162, 100, 240, 251, 122, 175, 64, 160, 57, 141, 94, 165, 206, 197,
+    218, 229, 9, 122, 57, 38, 118, 2, 81, 247, 29, 235,
+];
+
 #[inline]
 pub(crate) fn b2s_hash(data1: &[u8], data2: &[u8]) -> [u8; 32] {
     let mut hash = Blake2s256::new();
@@ -586,6 +613,14 @@ impl Handshake {
             _ => return Err(WireGuardError::UnexpectedPacket),
         };
 
+        // A classical (type 2) response can never complete a PQ initiation;
+        // enforce this in the state machine instead of relying on the
+        // downstream AEAD failure.
+        #[cfg(feature = "pq")]
+        if state.mlkem_decapsulation_key.is_some() {
+            return Err(WireGuardError::WrongPacketType);
+        }
+
         let peer_index = packet.sender_idx;
         let local_index = state.local_index;
 
@@ -916,9 +951,10 @@ impl Handshake {
 
         let local_index = self.inc_index();
 
-        // Same X25519 steps as format_handshake_initiation
-        let mut chaining_key = INITIAL_CHAIN_KEY;
-        let mut hash = INITIAL_CHAIN_HASH;
+        // Same X25519 steps as format_handshake_initiation, but over the
+        // domain-separated PQ chain (CONSTRUCTION_PQ)
+        let mut chaining_key = INITIAL_CHAIN_KEY_PQ;
+        let mut hash = INITIAL_CHAIN_HASH_PQ;
         hash = b2s_hash(&hash, self.params.peer_static_public.as_bytes());
         let ephemeral_private = x25519::ReusableSecret::random_from_rng(OsRng);
         // msg.message_type = 5 (PQ Init)
@@ -978,9 +1014,10 @@ impl Handshake {
         packet: PqHandshakeInit,
         dst: &'a mut [u8],
     ) -> Result<(&'a mut [u8], Session), WireGuardError> {
-        // Same X25519 steps as receive_handshake_initialization
-        let mut chaining_key = INITIAL_CHAIN_KEY;
-        let mut hash = INITIAL_CHAIN_HASH;
+        // Same X25519 steps as receive_handshake_initialization, but over the
+        // domain-separated PQ chain (CONSTRUCTION_PQ)
+        let mut chaining_key = INITIAL_CHAIN_KEY_PQ;
+        let mut hash = INITIAL_CHAIN_HASH_PQ;
         hash = b2s_hash(&hash, self.params.static_public.as_bytes());
         let peer_index = packet.sender_idx;
         let peer_ephemeral_public = x25519::PublicKey::from(*packet.unencrypted_ephemeral);
@@ -1227,11 +1264,12 @@ pub fn parse_pq_handshake_anon(
     static_public: &x25519::PublicKey,
     packet: &PqHandshakeInit,
 ) -> Result<HalfHandshake, WireGuardError> {
-    // The first 116 bytes of PQ init are identical to classical init,
-    // so static key extraction works the same way.
+    // The first 116 bytes of PQ init have the same layout as a classical init,
+    // so static key extraction works the same way — but the transcript is
+    // domain-separated, so it runs on the PQ chain (CONSTRUCTION_PQ).
     let peer_index = packet.sender_idx;
-    let mut chaining_key = INITIAL_CHAIN_KEY;
-    let mut hash = INITIAL_CHAIN_HASH;
+    let mut chaining_key = INITIAL_CHAIN_KEY_PQ;
+    let mut hash = INITIAL_CHAIN_HASH_PQ;
     hash = b2s_hash(&hash, static_public.as_bytes());
     let peer_ephemeral_public = x25519::PublicKey::from(*packet.unencrypted_ephemeral);
     hash = b2s_hash(&hash, peer_ephemeral_public.as_bytes());
@@ -1299,6 +1337,22 @@ mod tests {
 
         assert_eq!(buffer[..plaintext.len()], EXPECTED_CIPHERTEXT);
         assert_eq!(buffer[plaintext.len()..], EXPECTED_TAG);
+    }
+
+    /// Pins the domain-separated PQ chain constants to their derivation
+    /// (test vectors for the thesis artifact and any formal-analysis work):
+    /// INITIAL_CHAIN_KEY_PQ = BLAKE2s(CONSTRUCTION_PQ)
+    /// INITIAL_CHAIN_HASH_PQ = BLAKE2s(INITIAL_CHAIN_KEY_PQ || IDENTIFIER)
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_chain_constants_match_construction() {
+        let key = b2s_hash(CONSTRUCTION_PQ, &[]);
+        assert_eq!(key, INITIAL_CHAIN_KEY_PQ);
+        let hash = b2s_hash(&key, IDENTIFIER);
+        assert_eq!(hash, INITIAL_CHAIN_HASH_PQ);
+        // And they must differ from the classical chain (domain separation)
+        assert_ne!(INITIAL_CHAIN_KEY_PQ, INITIAL_CHAIN_KEY);
+        assert_ne!(INITIAL_CHAIN_HASH_PQ, INITIAL_CHAIN_HASH);
     }
 
     #[test]

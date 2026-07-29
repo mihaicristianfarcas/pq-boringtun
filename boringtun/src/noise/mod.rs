@@ -1169,4 +1169,109 @@ mod tests {
         fn assert_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
         assert_zeroize_on_drop::<ml_kem::DecapsulationKey768>();
     }
+
+    /// Recompute mac1 after tampering with a handshake message, the same way
+    /// an observe+inject attacker can (mac1 keys off the receiver's public
+    /// static key only). mac2 is zeroed (not under load).
+    #[cfg(feature = "pq")]
+    fn restamp_mac1(packet: &mut [u8], receiver_static_public: &x25519_dalek::PublicKey) {
+        use crate::noise::handshake::{b2s_hash, b2s_keyed_mac_16, LABEL_MAC1};
+        let mac1_off = packet.len() - 32;
+        let mac1_key = b2s_hash(LABEL_MAC1, receiver_static_public.as_bytes());
+        let mac1 = b2s_keyed_mac_16(&mac1_key, &packet[..mac1_off]);
+        packet[mac1_off..mac1_off + 16].copy_from_slice(&mac1);
+        for b in &mut packet[mac1_off + 16..] {
+            *b = 0;
+        }
+    }
+
+    #[cfg(feature = "pq")]
+    fn feed_expect_drop(tun: &mut Tunn, dgram: &[u8]) {
+        let mut dst = vec![0u8; 4096];
+        match tun.decapsulate(None, dgram, &mut dst) {
+            TunnResult::Err(_) | TunnResult::Done => {}
+            r => panic!("packet should have been dropped, got {:?}", r),
+        }
+    }
+
+    /// Downgrade-DoS regression: an observer truncating a captured type-5 init,
+    /// retyping it to 1 and recomputing mac1 must be rejected under the
+    /// classical chain WITHOUT consuming the timestamp — the genuine init
+    /// must still be accepted afterwards.
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_truncate_retype_rejected_without_timestamp_burn() {
+        let my_secret_key = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+        let my_public_key = x25519_dalek::PublicKey::from(&my_secret_key);
+        let their_secret_key = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+        let their_public_key = x25519_dalek::PublicKey::from(&their_secret_key);
+        let mut my_tun = Tunn::new(
+            my_secret_key,
+            their_public_key,
+            None,
+            None,
+            OsRng.next_u32(),
+            None,
+        );
+        let mut their_tun = Tunn::new(
+            their_secret_key,
+            my_public_key,
+            None,
+            None,
+            OsRng.next_u32(),
+            None,
+        );
+
+        let init = create_handshake_init(&mut my_tun);
+        assert_eq!(init.len(), PQ_HANDSHAKE_INIT_SZ);
+
+        // Truncate to classical size, retype to 1, recompute mac1
+        let mut forged = init[..HANDSHAKE_INIT_SZ].to_vec();
+        forged[0] = HANDSHAKE_INIT as u8;
+        restamp_mac1(&mut forged, &their_public_key);
+        feed_expect_drop(&mut their_tun, &forged);
+
+        // The real init must still complete (timestamp was not consumed)
+        let resp = create_handshake_response(&mut their_tun, &init);
+        assert_eq!(resp.len(), PQ_HANDSHAKE_RESP_SZ);
+    }
+
+    /// State-machine guard: a classical type-2 response against an outstanding
+    /// PQ initiation is rejected explicitly, not just by AEAD failure.
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pq_classical_response_rejected_by_guard() {
+        let my_secret_key = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+        let my_public_key = x25519_dalek::PublicKey::from(&my_secret_key);
+        let their_public_key =
+            x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::random_from_rng(OsRng));
+        let mut my_tun = Tunn::new(
+            my_secret_key,
+            their_public_key,
+            None,
+            None,
+            OsRng.next_u32(),
+            None,
+        );
+
+        let init = create_handshake_init(&mut my_tun);
+        let initiator_index = u32::from_le_bytes(init[4..8].try_into().unwrap());
+
+        // Forge a classical response addressed at the outstanding PQ init
+        let mut forged = vec![0u8; HANDSHAKE_RESP_SZ];
+        forged[0..4].copy_from_slice(&HANDSHAKE_RESP.to_le_bytes());
+        forged[4..8].copy_from_slice(&999u32.to_le_bytes());
+        forged[8..12].copy_from_slice(&initiator_index.to_le_bytes());
+        // any 32 bytes parse as an ephemeral
+        forged[12..44].copy_from_slice(&[7u8; 32]);
+        restamp_mac1(&mut forged, &my_public_key);
+
+        let mut dst = [0u8; 2048];
+        let res = my_tun.decapsulate(None, &forged, &mut dst);
+        assert!(
+            matches!(res, TunnResult::Err(WireGuardError::WrongPacketType)),
+            "guard must reject the classical response explicitly, got {:?}",
+            res
+        );
+    }
 }
