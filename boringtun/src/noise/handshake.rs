@@ -3,7 +3,7 @@
 
 use super::{HandshakeInit, HandshakeResponse, PacketCookieReply};
 #[cfg(feature = "pq")]
-use super::{PqHandshakeInit, PqHandshakeResponse};
+use super::{PqHandshakeInit, PqHandshakeResponse, PqsHandshakeInit, PqsHandshakeResponse};
 use crate::noise::errors::WireGuardError;
 use crate::noise::session::Session;
 #[cfg(not(feature = "mock-instant"))]
@@ -21,6 +21,8 @@ use ml_kem::{
 };
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 use std::convert::TryInto;
+#[cfg(feature = "pq")]
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 #[cfg(feature = "mock-instant")]
@@ -70,10 +72,91 @@ const INITIAL_CHAIN_HASH_PQ: [u8; KEY_LEN] = [
     218, 229, 9, 122, 57, 38, 118, 2, 81, 247, 29, 235,
 ];
 
+// Static-ML-KEM-authenticated transcripts (message types 8/9) get their own
+// construction constant, so a type-8 chain can never be confused with a
+// classical one or with the ephemeral-only PQ chain above.
+// CONSTRUCTION_PQS = "Noise_IKpsk2_25519+MLKEM768auth_ChaChaPoly_BLAKE2s"
+#[cfg(feature = "pq")]
+#[allow(dead_code)]
+pub(crate) const CONSTRUCTION_PQS: &[u8] = b"Noise_IKpsk2_25519+MLKEM768auth_ChaChaPoly_BLAKE2s";
+
+// initiator.chaining_key = HASH(CONSTRUCTION_PQS)
+#[cfg(feature = "pq")]
+const INITIAL_CHAIN_KEY_PQS: [u8; KEY_LEN] = [
+    156, 129, 130, 241, 218, 87, 243, 160, 158, 157, 102, 86, 158, 46, 39, 82, 77, 37, 232, 195,
+    11, 225, 68, 75, 234, 21, 171, 186, 120, 41, 192, 24,
+];
+
+// initiator.chaining_hash = HASH(initiator.chaining_key || IDENTIFIER)
+#[cfg(feature = "pq")]
+const INITIAL_CHAIN_HASH_PQS: [u8; KEY_LEN] = [
+    179, 150, 8, 103, 27, 19, 57, 54, 19, 50, 79, 247, 150, 4, 131, 20, 160, 125, 13, 87, 162, 207,
+    45, 56, 132, 185, 176, 253, 248, 247, 19, 20,
+];
+
 /// Label for deriving the per-handshake segment tag key off a chain value,
 /// in the style of LABEL_MAC1/LABEL_COOKIE.
 #[cfg(feature = "pq")]
 pub(crate) const LABEL_SEG: &[u8; 8] = b"pq-seg--";
+
+/// A device's long-term ML-KEM-768 keypair. One per device, shared by every
+/// peer configured for static-KEM authentication; the initiator encapsulates
+/// to the responder's copy of this key in message 1.
+#[cfg(feature = "pq")]
+pub struct MlKemStaticSecret {
+    dk: ml_kem::DecapsulationKey768,
+    ek_bytes: [u8; super::MLKEM768_PK_SIZE],
+}
+
+#[cfg(feature = "pq")]
+impl MlKemStaticSecret {
+    /// Reconstruct the keypair from its 64-byte FIPS 203 seed (`(d, z)`).
+    pub fn from_seed(seed: &[u8; super::MLKEM768_SEED_SIZE]) -> Self {
+        let dk = ml_kem::DecapsulationKey768::from_seed((*seed).into());
+        let mut ek_bytes = [0u8; super::MLKEM768_PK_SIZE];
+        ek_bytes.copy_from_slice(dk.encapsulation_key().to_bytes().as_slice());
+        MlKemStaticSecret { dk, ek_bytes }
+    }
+
+    /// The matching encapsulation key, as it appears in the transcript
+    pub fn encapsulation_key_bytes(&self) -> &[u8; super::MLKEM768_PK_SIZE] {
+        &self.ek_bytes
+    }
+}
+
+#[cfg(feature = "pq")]
+impl std::fmt::Debug for MlKemStaticSecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MlKemStaticSecret")
+            .field("dk", &"<redacted>")
+            .finish()
+    }
+}
+
+/// A peer's long-term ML-KEM-768 encapsulation key, kept both decoded (for
+/// encapsulation) and serialized (for the transcript).
+#[cfg(feature = "pq")]
+#[derive(Clone, Debug)]
+pub struct MlKemPublicKey {
+    ek: EncapsulationKey768,
+    bytes: [u8; super::MLKEM768_PK_SIZE],
+}
+
+#[cfg(feature = "pq")]
+impl MlKemPublicKey {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, WireGuardError> {
+        let bytes: [u8; super::MLKEM768_PK_SIZE] = bytes
+            .try_into()
+            .map_err(|_| WireGuardError::InvalidParameter)?;
+        let ek = EncapsulationKey768::new((&bytes).into())
+            .map_err(|_| WireGuardError::InvalidParameter)?;
+        Ok(MlKemPublicKey { ek, bytes })
+    }
+
+    pub fn as_bytes(&self) -> &[u8; super::MLKEM768_PK_SIZE] {
+        &self.bytes
+    }
+}
 
 #[inline]
 pub(crate) fn b2s_hash(data1: &[u8], data2: &[u8]) -> [u8; 32] {
@@ -281,6 +364,14 @@ struct NoiseParams {
     sending_mac1_key: [u8; KEY_LEN],
     /// An optional preshared key
     preshared_key: Option<[u8; KEY_LEN]>,
+    /// Our device's long-term ML-KEM-768 keypair. Present together with
+    /// `peer_static_mlkem` exactly when this peer speaks static-auth (types
+    /// 8/9).
+    #[cfg(feature = "pq")]
+    static_mlkem: Option<Arc<MlKemStaticSecret>>,
+    /// The peer's long-term ML-KEM-768 encapsulation key
+    #[cfg(feature = "pq")]
+    peer_static_mlkem: Option<MlKemPublicKey>,
 }
 
 impl std::fmt::Debug for NoiseParams {
@@ -304,6 +395,11 @@ struct HandshakeInitSentState {
     time_sent: Instant,
     #[cfg(feature = "pq")]
     mlkem_decapsulation_key: Option<ml_kem::DecapsulationKey768>,
+    /// Segment tag key for the init direction, captured at the prefix
+    /// boundary. Present exactly when this is a static-auth (type 8)
+    /// initiation, so it doubles as the mode marker for the response guard.
+    #[cfg(feature = "pq")]
+    pqs_seg_tag_key: Option<[u8; KEY_LEN]>,
     /// Reassembly buffer for a segmented PQ response (allocated only after the
     /// classical part of the response's segment 0 authenticated).
     #[cfg(feature = "pq")]
@@ -311,25 +407,31 @@ struct HandshakeInitSentState {
 }
 
 /// Partially reassembled segmented PQ handshake initiation (responder side).
-/// Created only after the 116-byte classical prefix of segment 0 fully
+/// Created only after the authenticating prefix of segment 0 fully
 /// authenticated the initiator and the segment tag verified.
 #[cfg(feature = "pq")]
 struct PqPartialInit {
     /// Routing id of this segmented exchange (the initiator's sender_idx)
     hs_id: u32,
-    /// Chain value after the static-static mixing step (the tag-key anchor)
+    /// Chain value at the prefix boundary (the tag-key anchor)
     chaining_key: [u8; KEY_LEN],
-    /// Transcript hash after the encrypted_timestamp mix (before the ek mix)
+    /// Transcript hash at the prefix boundary
     hash: [u8; KEY_LEN],
-    peer_ephemeral_public: x25519::PublicKey,
+    /// Initiator's X25519 ephemeral, when the prefix carried it (type 5). A
+    /// type-8 prefix does not, so it is read from the assembled buffer.
+    peer_ephemeral_public: Option<x25519::PublicKey>,
     peer_index: u32,
     seg_tag_key: [u8; KEY_LEN],
     seg_cnt: u8,
     stride: usize,
     /// Bitmap of received segments (MAX 8 segments)
     filled: u16,
-    /// Assembly buffer for the complete type-5 message
-    buf: [u8; super::PQ_HANDSHAKE_INIT_SZ],
+    /// Size of the inner message being assembled
+    total: usize,
+    /// Whether the inner message is a static-auth (type 8) initiation
+    pqs: bool,
+    /// Assembly buffer for the complete inner message
+    buf: [u8; super::PQS_HANDSHAKE_INIT_SZ],
     created: Instant,
 }
 
@@ -358,8 +460,12 @@ struct PqPartialResp {
     seg_cnt: u8,
     stride: usize,
     filled: u16,
-    /// Assembly buffer for the complete type-6 message
-    buf: [u8; super::PQ_HANDSHAKE_RESP_SZ],
+    /// Size of the inner message being assembled
+    total: usize,
+    /// Whether the inner message is a static-auth (type 9) response
+    pqs: bool,
+    /// Assembly buffer for the complete inner message
+    buf: [u8; super::PQS_HANDSHAKE_RESP_SZ],
 }
 
 /// Outcome of feeding one authenticated segment into the handshake
@@ -403,6 +509,10 @@ enum HandshakeState {
         /// if any; drives the responder's stride mirroring
         #[cfg(feature = "pq")]
         pq_observed_stride: Option<usize>,
+        /// The initiation was a static-auth (type 8) one, so the response
+        /// must be type 9
+        #[cfg(feature = "pq")]
+        pqs: bool,
     },
     /// A segmented PQ initiation is being reassembled (segment 0 authenticated)
     #[cfg(feature = "pq")]
@@ -504,6 +614,10 @@ impl NoiseParams {
             static_shared,
             sending_mac1_key: initial_sending_mac_key,
             preshared_key,
+            #[cfg(feature = "pq")]
+            static_mlkem: None,
+            #[cfg(feature = "pq")]
+            peer_static_mlkem: None,
         }
     }
 
@@ -677,6 +791,8 @@ impl Handshake {
                 mlkem_encapsulation_key: None,
                 #[cfg(feature = "pq")]
                 pq_observed_stride: None,
+                #[cfg(feature = "pq")]
+                pqs: false,
             },
         );
 
@@ -912,6 +1028,8 @@ impl Handshake {
                 #[cfg(feature = "pq")]
                 mlkem_decapsulation_key: None,
                 #[cfg(feature = "pq")]
+                pqs_seg_tag_key: None,
+                #[cfg(feature = "pq")]
                 pq_partial_resp: None,
             }),
         );
@@ -938,6 +1056,8 @@ impl Handshake {
                 mlkem_encapsulation_key: _,
                 #[cfg(feature = "pq")]
                 pq_observed_stride: _,
+                #[cfg(feature = "pq")]
+                pqs: _,
             } => (chaining_key, hash, peer_ephemeral_public, peer_index),
             _ => {
                 panic!("Unexpected attempt to call send_handshake_response");
@@ -1087,6 +1207,7 @@ impl Handshake {
                 ephemeral_private,
                 time_sent: time_now,
                 mlkem_decapsulation_key: Some(dk),
+                pqs_seg_tag_key: None,
                 pq_partial_resp: None,
             }),
         );
@@ -1182,6 +1303,7 @@ impl Handshake {
                 peer_index,
                 mlkem_encapsulation_key: Some(packet.mlkem_ephemeral_public.to_vec()),
                 pq_observed_stride: None,
+                pqs: false,
             },
         );
 
@@ -1213,6 +1335,7 @@ impl Handshake {
                     peer_index,
                     mlkem_encapsulation_key,
                     pq_observed_stride: _,
+                    pqs: _,
                 } => (
                     chaining_key,
                     hash,
@@ -1380,6 +1503,492 @@ impl Handshake {
         Ok(Session::new(local_index, peer_index, temp3, temp2))
     }
 
+    // ---- Static ML-KEM authentication (message types 8/9) ----
+
+    /// Configure this peer for static-KEM authentication: our device's
+    /// long-term ML-KEM keypair plus the peer's encapsulation key. Both are
+    /// required; presence of both is what selects types 8/9 for this peer.
+    #[cfg(feature = "pq")]
+    pub(crate) fn set_pq_static_auth(
+        &mut self,
+        static_mlkem: Arc<MlKemStaticSecret>,
+        peer_static_mlkem: MlKemPublicKey,
+    ) {
+        self.params.static_mlkem = Some(static_mlkem);
+        self.params.peer_static_mlkem = Some(peer_static_mlkem);
+    }
+
+    /// Whether this peer speaks static-auth. Mode is per-peer configuration
+    /// and is never negotiated on the wire.
+    #[cfg(feature = "pq")]
+    pub(crate) fn pqs_enabled(&self) -> bool {
+        self.params.static_mlkem.is_some() && self.params.peer_static_mlkem.is_some()
+    }
+
+    /// The peer's configured long-term ML-KEM-768 encapsulation key, if any
+    #[cfg(feature = "pq")]
+    pub(super) fn peer_mlkem_public_key(&self) -> Option<&[u8; super::MLKEM768_PK_SIZE]> {
+        self.params.peer_static_mlkem.as_ref().map(|k| k.as_bytes())
+    }
+
+    /// Whether the initiation awaiting a response from us was static-auth
+    #[cfg(feature = "pq")]
+    pub(super) fn pqs_response_pending(&self) -> bool {
+        matches!(self.state, HandshakeState::InitReceived { pqs: true, .. })
+    }
+
+    #[cfg(feature = "pq")]
+    pub(super) fn format_pqs_handshake_initiation<'a>(
+        &mut self,
+        dst: &'a mut [u8],
+    ) -> Result<&'a mut [u8], WireGuardError> {
+        if dst.len() < super::PQS_HANDSHAKE_INIT_SZ {
+            return Err(WireGuardError::DestinationBufferTooSmall);
+        }
+        // Cheap clones (an Arc bump and one decoded ek) that release the
+        // borrow on self.params before the &mut self calls below
+        let (own_mlkem, peer_mlkem) = match (
+            self.params.static_mlkem.as_ref(),
+            self.params.peer_static_mlkem.as_ref(),
+        ) {
+            (Some(own), Some(peer)) => (Arc::clone(own), peer.clone()),
+            _ => return Err(WireGuardError::WrongKey),
+        };
+
+        let (message_type, rest) = dst.split_at_mut(4);
+        let (sender_index, rest) = rest.split_at_mut(4);
+        let (mlkem_static_ct, rest) = rest.split_at_mut(super::MLKEM768_CT_SIZE);
+        let (encrypted_static, rest) = rest.split_at_mut(32 + 16);
+        let (encrypted_timestamp, rest) = rest.split_at_mut(12 + 16);
+        let (unencrypted_ephemeral, rest) = rest.split_at_mut(32);
+        let (mlkem_ephemeral_ek, _) = rest.split_at_mut(super::MLKEM768_PK_SIZE);
+
+        let local_index = self.inc_index();
+        let mut rng = rand_core_pq::UnwrapErr(getrandom_pq::SysRng);
+
+        // ---- authenticating prefix ----
+        let mut chaining_key = INITIAL_CHAIN_KEY_PQS;
+        let mut hash = INITIAL_CHAIN_HASH_PQS;
+        hash = b2s_hash(&hash, self.params.peer_static_public.as_bytes());
+        // Binding the responder's encapsulation key into the transcript is
+        // what closes the KEM-binding gap: ML-KEM is not MAL-BIND-K-PK, so a
+        // ciphertext alone does not commit to the key it was made under
+        hash = b2s_hash(&hash, peer_mlkem.as_bytes());
+        // msg.message_type = 8
+        message_type.copy_from_slice(&super::PQS_HANDSHAKE_INIT.to_le_bytes());
+        sender_index.copy_from_slice(&local_index.to_le_bytes());
+        // Encapsulate to the responder's long-term key. This is what makes
+        // the identity field below post-quantum confidential, and it is why
+        // the X25519 ephemeral had to move out of the prefix.
+        let (ct_s, ss_s) = peer_mlkem.ek.encapsulate_with_rng(&mut rng);
+        mlkem_static_ct.copy_from_slice(ct_s.as_slice());
+        hash = b2s_hash(&hash, mlkem_static_ct);
+        let temp = b2s_hmac(&chaining_key, ss_s.as_slice());
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+        let key = b2s_hmac2(&temp, &chaining_key, &[0x02]);
+        aead_chacha20_seal(
+            encrypted_static,
+            &key,
+            0,
+            self.params.static_public.as_bytes(),
+            &hash,
+        );
+        hash = b2s_hash(&hash, encrypted_static);
+        // Our own long-term encapsulation key, binding the initiator's PQ
+        // identity (the responder encapsulates to it in message 2)
+        hash = b2s_hash(&hash, own_mlkem.encapsulation_key_bytes());
+        let temp = b2s_hmac(&chaining_key, self.params.static_shared.as_bytes());
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+        let key = b2s_hmac2(&temp, &chaining_key, &[0x02]);
+        let timestamp = self.stamper.stamp();
+        aead_chacha20_seal(encrypted_timestamp, &key, 0, &timestamp, &hash);
+        hash = b2s_hash(&hash, encrypted_timestamp);
+
+        // ---- prefix boundary: everything above authenticates us ----
+        let seg_tag_key = b2s_hmac(&chaining_key, LABEL_SEG);
+
+        let ephemeral_private = x25519::ReusableSecret::random_from_rng(OsRng);
+        unencrypted_ephemeral
+            .copy_from_slice(x25519::PublicKey::from(&ephemeral_private).as_bytes());
+        hash = b2s_hash(&hash, unencrypted_ephemeral);
+        chaining_key = b2s_hmac(&b2s_hmac(&chaining_key, unencrypted_ephemeral), &[0x01]);
+        let ephemeral_shared = ephemeral_private.diffie_hellman(&self.params.peer_static_public);
+        chaining_key = b2s_hmac(
+            &b2s_hmac(&chaining_key, &ephemeral_shared.to_bytes()),
+            &[0x01],
+        );
+
+        // ML-KEM-768 ephemeral keygen (forward secrecy against a quantum adversary)
+        let (dk, ek): (ml_kem::DecapsulationKey768, EncapsulationKey768) =
+            MlKem768::generate_keypair_from_rng(&mut rng);
+        mlkem_ephemeral_ek.copy_from_slice(ek.to_bytes().as_slice());
+        hash = b2s_hash(&hash, mlkem_ephemeral_ek);
+
+        let time_now = Instant::now();
+        self.previous = std::mem::replace(
+            &mut self.state,
+            HandshakeState::InitSent(HandshakeInitSentState {
+                local_index,
+                chaining_key,
+                hash,
+                ephemeral_private,
+                time_sent: time_now,
+                mlkem_decapsulation_key: Some(dk),
+                pqs_seg_tag_key: Some(seg_tag_key),
+                pq_partial_resp: None,
+            }),
+        );
+
+        self.append_mac1_and_mac2(local_index, &mut dst[..super::PQS_HANDSHAKE_INIT_SZ])
+    }
+
+    /// Run the authenticating prefix of a type-8 initiation: decapsulate to
+    /// our long-term key, recover and check the initiator's identity, and
+    /// validate the timestamp against the replay window without committing it
+    /// (callers commit only once the whole message, or segment 0, is
+    /// authenticated).
+    #[cfg(feature = "pq")]
+    fn process_pqs_init_prefix(
+        &self,
+        mlkem_static_ct: &[u8],
+        encrypted_static: &[u8],
+        encrypted_timestamp: &[u8],
+    ) -> Result<([u8; KEY_LEN], [u8; KEY_LEN], Tai64N), WireGuardError> {
+        let own_mlkem = self
+            .params
+            .static_mlkem
+            .as_ref()
+            .ok_or(WireGuardError::WrongKey)?;
+        let peer_mlkem = self
+            .params
+            .peer_static_mlkem
+            .as_ref()
+            .ok_or(WireGuardError::WrongKey)?;
+
+        let mut chaining_key = INITIAL_CHAIN_KEY_PQS;
+        let mut hash = INITIAL_CHAIN_HASH_PQS;
+        hash = b2s_hash(&hash, self.params.static_public.as_bytes());
+        hash = b2s_hash(&hash, own_mlkem.encapsulation_key_bytes());
+
+        let ct: &[u8; super::MLKEM768_CT_SIZE] = mlkem_static_ct
+            .try_into()
+            .map_err(|_| WireGuardError::InvalidPacket)?;
+        // The only asymmetric operation performed before authentication.
+        // ML-KEM decapsulation uses implicit rejection, so its cost is
+        // constant and independent of what the attacker sends.
+        let ss_s = own_mlkem
+            .dk
+            .try_decapsulate(ct.into())
+            .map_err(|_| WireGuardError::MlKemDecapsulationFailed)?;
+        hash = b2s_hash(&hash, mlkem_static_ct);
+        let temp = b2s_hmac(&chaining_key, ss_s.as_slice());
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+        let key = b2s_hmac2(&temp, &chaining_key, &[0x02]);
+
+        let mut peer_static_public_decrypted = [0u8; KEY_LEN];
+        aead_chacha20_open(
+            &mut peer_static_public_decrypted,
+            &key,
+            0,
+            encrypted_static,
+            &hash,
+        )?;
+        ring::constant_time::verify_slices_are_equal(
+            self.params.peer_static_public.as_bytes(),
+            &peer_static_public_decrypted,
+        )
+        .map_err(|_| WireGuardError::WrongKey)?;
+
+        hash = b2s_hash(&hash, encrypted_static);
+        hash = b2s_hash(&hash, peer_mlkem.as_bytes());
+        let temp = b2s_hmac(&chaining_key, self.params.static_shared.as_bytes());
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+        let key = b2s_hmac2(&temp, &chaining_key, &[0x02]);
+        let mut timestamp = [0u8; TIMESTAMP_LEN];
+        aead_chacha20_open(&mut timestamp, &key, 0, encrypted_timestamp, &hash)?;
+
+        let timestamp = Tai64N::parse(&timestamp)?;
+        if !timestamp.after(&self.last_handshake_timestamp) {
+            return Err(WireGuardError::WrongTai64nTimestamp);
+        }
+
+        hash = b2s_hash(&hash, encrypted_timestamp);
+        Ok((chaining_key, hash, timestamp))
+    }
+
+    /// The part of a type-8 initiation that follows the prefix: the X25519
+    /// ephemeral (and its DH against our static key) and the initiator's
+    /// ephemeral ML-KEM encapsulation key.
+    #[cfg(feature = "pq")]
+    fn pqs_init_suffix(
+        &self,
+        mut chaining_key: [u8; KEY_LEN],
+        mut hash: [u8; KEY_LEN],
+        unencrypted_ephemeral: &[u8; 32],
+        mlkem_ephemeral_ek: &[u8],
+    ) -> ([u8; KEY_LEN], [u8; KEY_LEN], x25519::PublicKey) {
+        let peer_ephemeral_public = x25519::PublicKey::from(*unencrypted_ephemeral);
+        hash = b2s_hash(&hash, unencrypted_ephemeral);
+        chaining_key = b2s_hmac(&b2s_hmac(&chaining_key, unencrypted_ephemeral), &[0x01]);
+        let ephemeral_shared = self
+            .params
+            .static_private
+            .diffie_hellman(&peer_ephemeral_public);
+        chaining_key = b2s_hmac(
+            &b2s_hmac(&chaining_key, &ephemeral_shared.to_bytes()),
+            &[0x01],
+        );
+        hash = b2s_hash(&hash, mlkem_ephemeral_ek);
+        (chaining_key, hash, peer_ephemeral_public)
+    }
+
+    #[cfg(feature = "pq")]
+    pub(super) fn receive_pqs_handshake_initialization(
+        &mut self,
+        packet: PqsHandshakeInit,
+    ) -> Result<(), WireGuardError> {
+        let peer_index = packet.sender_idx;
+        let (chaining_key, hash, timestamp) = self.process_pqs_init_prefix(
+            packet.mlkem_static_ct,
+            packet.encrypted_static,
+            packet.encrypted_timestamp,
+        )?;
+        self.last_handshake_timestamp = timestamp;
+
+        let (chaining_key, hash, peer_ephemeral_public) = self.pqs_init_suffix(
+            chaining_key,
+            hash,
+            packet.unencrypted_ephemeral,
+            packet.mlkem_ephemeral_ek,
+        );
+
+        self.previous = std::mem::replace(
+            &mut self.state,
+            HandshakeState::InitReceived {
+                chaining_key,
+                hash,
+                peer_ephemeral_public,
+                peer_index,
+                mlkem_encapsulation_key: Some(packet.mlkem_ephemeral_ek.to_vec()),
+                pq_observed_stride: None,
+                pqs: true,
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Formats the static-auth handshake response. Like its phase-1
+    /// counterpart it also returns the response-direction segment tag key
+    /// (anchored after the `se` mix) and the routing `hs_id`.
+    #[cfg(feature = "pq")]
+    #[allow(clippy::type_complexity)]
+    pub(super) fn format_pqs_handshake_response<'a>(
+        &mut self,
+        dst: &'a mut [u8],
+    ) -> Result<(&'a mut [u8], Session, [u8; KEY_LEN], u32), WireGuardError> {
+        if dst.len() < super::PQS_HANDSHAKE_RESP_SZ {
+            return Err(WireGuardError::DestinationBufferTooSmall);
+        }
+        let peer_mlkem = self
+            .params
+            .peer_static_mlkem
+            .as_ref()
+            .ok_or(WireGuardError::WrongKey)?
+            .clone();
+
+        let state = std::mem::replace(&mut self.state, HandshakeState::None);
+        let (mut chaining_key, mut hash, peer_ephemeral_public, peer_index, mlkem_ek_bytes) =
+            match state {
+                HandshakeState::InitReceived {
+                    chaining_key,
+                    hash,
+                    peer_ephemeral_public,
+                    peer_index,
+                    mlkem_encapsulation_key,
+                    pq_observed_stride: _,
+                    pqs: true,
+                } => (
+                    chaining_key,
+                    hash,
+                    peer_ephemeral_public,
+                    peer_index,
+                    mlkem_encapsulation_key
+                        .expect("static-auth response requires ML-KEM encapsulation key"),
+                ),
+                _ => {
+                    panic!("Unexpected attempt to call format_pqs_handshake_response");
+                }
+            };
+
+        let (message_type, rest) = dst.split_at_mut(4);
+        let (sender_index, rest) = rest.split_at_mut(4);
+        let (receiver_index, rest) = rest.split_at_mut(4);
+        let (unencrypted_ephemeral, rest) = rest.split_at_mut(32);
+        let (encrypted_nothing, rest) = rest.split_at_mut(16);
+        let (mlkem_ephemeral_ct, rest) = rest.split_at_mut(super::MLKEM768_CT_SIZE);
+        let (mlkem_static_ct, _) = rest.split_at_mut(super::MLKEM768_CT_SIZE);
+
+        let ephemeral_private = x25519::ReusableSecret::random_from_rng(OsRng);
+        let local_index = self.inc_index();
+        message_type.copy_from_slice(&super::PQS_HANDSHAKE_RESP.to_le_bytes());
+        sender_index.copy_from_slice(&local_index.to_le_bytes());
+        receiver_index.copy_from_slice(&peer_index.to_le_bytes());
+        unencrypted_ephemeral
+            .copy_from_slice(x25519::PublicKey::from(&ephemeral_private).as_bytes());
+        hash = b2s_hash(&hash, unencrypted_ephemeral);
+        let temp = b2s_hmac(&chaining_key, unencrypted_ephemeral);
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+        // ee
+        let ephemeral_shared = ephemeral_private.diffie_hellman(&peer_ephemeral_public);
+        let temp = b2s_hmac(&chaining_key, &ephemeral_shared.to_bytes());
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+        // se
+        let temp = b2s_hmac(
+            &chaining_key,
+            &ephemeral_private
+                .diffie_hellman(&self.params.peer_static_public)
+                .to_bytes(),
+        );
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+
+        // Anchor unchanged from phase 1: the last chain value the initiator
+        // can reach from segment 0 alone
+        let seg_tag_key = b2s_hmac(&chaining_key, LABEL_SEG);
+
+        let mut rng = rand_core_pq::UnwrapErr(getrandom_pq::SysRng);
+
+        // Encapsulate to the initiator's ephemeral key (forward secrecy)
+        let ek_array: &[u8; super::MLKEM768_PK_SIZE] = mlkem_ek_bytes
+            .as_slice()
+            .try_into()
+            .expect("ML-KEM ek wrong size");
+        let ek_e = EncapsulationKey768::new(ek_array.into())
+            .map_err(|_| WireGuardError::InvalidPacket)?;
+        let (ct_e, ss_e) = ek_e.encapsulate_with_rng(&mut rng);
+        mlkem_ephemeral_ct.copy_from_slice(ct_e.as_slice());
+        let temp = b2s_hmac(&chaining_key, ss_e.as_slice());
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+        hash = b2s_hash(&hash, mlkem_ephemeral_ct);
+
+        // Encapsulate to the initiator's long-term key. Only the holder of
+        // the matching decapsulation key can derive the session keys, which
+        // is what makes the initiator post-quantum authenticated (implicitly,
+        // at key confirmation).
+        let (ct_s, ss_s) = peer_mlkem.ek.encapsulate_with_rng(&mut rng);
+        mlkem_static_ct.copy_from_slice(ct_s.as_slice());
+        let temp = b2s_hmac(&chaining_key, ss_s.as_slice());
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+        hash = b2s_hash(&hash, mlkem_static_ct);
+
+        // PSK mixing (unchanged)
+        let temp = b2s_hmac(
+            &chaining_key,
+            &self.params.preshared_key.unwrap_or([0u8; 32])[..],
+        );
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+        let temp2 = b2s_hmac2(&temp, &chaining_key, &[0x02]);
+        let key = b2s_hmac2(&temp, &temp2, &[0x03]);
+        hash = b2s_hash(&hash, &temp2);
+        aead_chacha20_seal(encrypted_nothing, &key, 0, &[], &hash);
+
+        // Derive session keys
+        let temp1 = b2s_hmac(&chaining_key, &[]);
+        let temp2 = b2s_hmac(&temp1, &[0x01]);
+        let temp3 = b2s_hmac2(&temp1, &temp2, &[0x02]);
+
+        let dst = self.append_mac1_and_mac2(local_index, &mut dst[..super::PQS_HANDSHAKE_RESP_SZ])?;
+
+        Ok((
+            dst,
+            Session::new(local_index, peer_index, temp2, temp3),
+            seg_tag_key,
+            peer_index,
+        ))
+    }
+
+    #[cfg(feature = "pq")]
+    pub(super) fn receive_pqs_handshake_response(
+        &mut self,
+        packet: PqsHandshakeResponse,
+    ) -> Result<Session, WireGuardError> {
+        let (state, is_previous) = match (&self.state, &self.previous) {
+            (HandshakeState::InitSent(s), _) if s.local_index == packet.receiver_idx => (s, false),
+            (_, HandshakeState::InitSent(s)) if s.local_index == packet.receiver_idx => (s, true),
+            _ => return Err(WireGuardError::UnexpectedPacket),
+        };
+        // A type-9 response can only complete a type-8 initiation
+        if state.pqs_seg_tag_key.is_none() {
+            return Err(WireGuardError::WrongPacketType);
+        }
+
+        let peer_index = packet.sender_idx;
+        let local_index = state.local_index;
+
+        let unencrypted_ephemeral = x25519::PublicKey::from(*packet.unencrypted_ephemeral);
+        let mut hash = b2s_hash(&state.hash, unencrypted_ephemeral.as_bytes());
+        let temp = b2s_hmac(&state.chaining_key, unencrypted_ephemeral.as_bytes());
+        let mut chaining_key = b2s_hmac(&temp, &[0x01]);
+        let ephemeral_shared = state
+            .ephemeral_private
+            .diffie_hellman(&unencrypted_ephemeral);
+        let temp = b2s_hmac(&chaining_key, &ephemeral_shared.to_bytes());
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+        let temp = b2s_hmac(
+            &chaining_key,
+            &self
+                .params
+                .static_private
+                .diffie_hellman(&unencrypted_ephemeral)
+                .to_bytes(),
+        );
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+
+        let dk_e = state
+            .mlkem_decapsulation_key
+            .as_ref()
+            .ok_or(WireGuardError::InvalidPacket)?;
+        let (chaining_key_new, hash_new) = pqs_absorb_response_ciphertexts(
+            chaining_key,
+            hash,
+            dk_e,
+            self.params
+                .static_mlkem
+                .as_ref()
+                .ok_or(WireGuardError::WrongKey)?,
+            packet.mlkem_ephemeral_ct,
+            packet.mlkem_static_ct,
+        )?;
+        chaining_key = chaining_key_new;
+        hash = hash_new;
+
+        // PSK mixing (unchanged)
+        let temp = b2s_hmac(
+            &chaining_key,
+            &self.params.preshared_key.unwrap_or([0u8; 32])[..],
+        );
+        chaining_key = b2s_hmac(&temp, &[0x01]);
+        let temp2 = b2s_hmac2(&temp, &chaining_key, &[0x02]);
+        let key = b2s_hmac2(&temp, &temp2, &[0x03]);
+        hash = b2s_hash(&hash, &temp2);
+        aead_chacha20_open(&mut [], &key, 0, packet.encrypted_nothing, &hash)?;
+
+        // Derive session keys
+        let temp1 = b2s_hmac(&chaining_key, &[]);
+        let temp2 = b2s_hmac(&temp1, &[0x01]);
+        let temp3 = b2s_hmac2(&temp1, &temp2, &[0x02]);
+
+        let rtt_time = Instant::now().duration_since(state.time_sent);
+        self.last_rtt = Some(rtt_time.as_millis() as u32);
+
+        if is_previous {
+            self.previous = HandshakeState::None;
+        } else {
+            self.state = HandshakeState::None;
+        }
+        Ok(Session::new(local_index, peer_index, temp3, temp2))
+    }
+
     // ---- PQ handshake segmentation (message type 7) ----
 
     /// Feed one parsed type-7 segment into the handshake state machine.
@@ -1408,45 +2017,73 @@ impl Handshake {
     }
 
     /// Init-direction (responder side) segment processing per the
-    /// authenticate-then-buffer rule: segment 0's classical prefix fully
-    /// authenticates the initiator before a single byte is buffered; the rest
-    /// are gated by the per-handshake segment tag.
+    /// authenticate-then-buffer rule: segment 0 carries the whole
+    /// authenticating prefix, so the initiator is authenticated before a
+    /// single byte is buffered; the rest are gated by the per-handshake
+    /// segment tag.
     #[cfg(feature = "pq")]
     fn receive_pq_init_segment(
         &mut self,
         packet: &super::PqSegment,
     ) -> Result<PqSegOutcome, WireGuardError> {
-        const TOTAL: usize = super::PQ_HANDSHAKE_INIT_SZ;
         if packet.seg_idx == 0 {
             let chunk = packet.chunk;
             let stride = chunk.len();
             let cnt = packet.seg_cnt as usize;
-            // Segment 0 must carry the full classical prefix (plus leading ek
-            // bytes), and the stride it fixes must assemble to exactly TOTAL
-            if stride < super::PQ_INIT_PREFIX_SZ
-                || stride * (cnt - 1) >= TOTAL
-                || stride * cnt < TOTAL
-            {
+            if stride < 8 {
                 return Err(WireGuardError::IncorrectPacketLength);
             }
-            // The inner message must be a type-5 init whose sender_idx equals
-            // the hs_id these segments are routed under
+            // The inner message must be the initiation type this peer is
+            // configured for. Mode is per-peer configuration, so a peer set up
+            // for static auth never accepts a type-5 initiation and vice
+            // versa — there is nothing to downgrade to.
+            let pqs = self.pqs_enabled();
+            let (expected_type, total, prefix_sz) = if pqs {
+                (
+                    super::PQS_HANDSHAKE_INIT,
+                    super::PQS_HANDSHAKE_INIT_SZ,
+                    super::PQS_INIT_PREFIX_SZ,
+                )
+            } else {
+                (
+                    super::PQ_HANDSHAKE_INIT,
+                    super::PQ_HANDSHAKE_INIT_SZ,
+                    super::PQ_INIT_PREFIX_SZ,
+                )
+            };
             let inner_type = u32::from_le_bytes(chunk[0..4].try_into().unwrap());
-            if inner_type != super::PQ_HANDSHAKE_INIT {
+            if inner_type != expected_type {
                 return Err(WireGuardError::WrongPacketType);
             }
+            // Segment 0 must carry the full authenticating prefix, and the
+            // stride it fixes must assemble to exactly `total`
+            if stride < prefix_sz || stride * (cnt - 1) >= total || stride * cnt < total {
+                return Err(WireGuardError::IncorrectPacketLength);
+            }
+            // ...and the inner sender_idx must equal the hs_id these segments
+            // are routed under
             let sender_idx = u32::from_le_bytes(chunk[4..8].try_into().unwrap());
             if sender_idx != packet.hs_id {
                 return Err(WireGuardError::WrongIndex);
             }
-            let unencrypted_ephemeral: &[u8; 32] = (&chunk[8..40]).try_into().unwrap();
 
-            let (chaining_key, hash, peer_ephemeral_public, timestamp) = self
-                .process_pq_init_prefix(
-                    unencrypted_ephemeral,
-                    &chunk[40..88],
-                    &chunk[88..super::PQ_INIT_PREFIX_SZ],
+            let (chaining_key, hash, peer_ephemeral_public, timestamp) = if pqs {
+                let (chaining_key, hash, timestamp) = self.process_pqs_init_prefix(
+                    &chunk[super::PQS_INIT_CT_S_OFF..super::PQS_INIT_ENC_STATIC_OFF],
+                    &chunk[super::PQS_INIT_ENC_STATIC_OFF..super::PQS_INIT_ENC_TIMESTAMP_OFF],
+                    &chunk[super::PQS_INIT_ENC_TIMESTAMP_OFF..super::PQS_INIT_PREFIX_SZ],
                 )?;
+                (chaining_key, hash, None, timestamp)
+            } else {
+                let unencrypted_ephemeral: &[u8; 32] = (&chunk[8..40]).try_into().unwrap();
+                let (chaining_key, hash, peer_ephemeral_public, timestamp) = self
+                    .process_pq_init_prefix(
+                        unencrypted_ephemeral,
+                        &chunk[40..88],
+                        &chunk[88..super::PQ_INIT_PREFIX_SZ],
+                    )?;
+                (chaining_key, hash, Some(peer_ephemeral_public), timestamp)
+            };
 
             // Authenticate the segment itself (header fields + chunk) before
             // consuming the timestamp or committing any state
@@ -1465,7 +2102,9 @@ impl Handshake {
                 seg_cnt: packet.seg_cnt,
                 stride,
                 filled: 1,
-                buf: [0u8; TOTAL],
+                total,
+                pqs,
+                buf: [0u8; super::PQS_HANDSHAKE_INIT_SZ],
                 created: Instant::now(),
             });
             partial.buf[..stride].copy_from_slice(chunk);
@@ -1481,12 +2120,13 @@ impl Handshake {
                 HandshakeState::PqInitBuffering(p) if p.hs_id == packet.hs_id => p,
                 _ => return Err(WireGuardError::UnexpectedPacket),
             };
+            let total = partial.total;
             pq_fill_segment(
                 &mut partial.filled,
                 partial.stride,
                 partial.seg_cnt,
                 &partial.seg_tag_key,
-                TOTAL,
+                total,
                 &mut partial.buf,
                 packet,
             )?
@@ -1495,21 +2135,41 @@ impl Handshake {
             return Ok(PqSegOutcome::Buffered);
         }
 
-        // Assembly complete: resume at the ek-mixing step
+        // Assembly complete: resume where the unsegmented path left off
         let partial = match std::mem::replace(&mut self.state, HandshakeState::None) {
             HandshakeState::PqInitBuffering(p) => p,
             _ => unreachable!(),
         };
-        let ek = &partial.buf
-            [super::PQ_INIT_PREFIX_SZ..super::PQ_INIT_PREFIX_SZ + super::MLKEM768_PK_SIZE];
-        let hash = b2s_hash(&partial.hash, ek);
+        let (chaining_key, hash, peer_ephemeral_public, ek) = if partial.pqs {
+            let ephemeral: &[u8; 32] = (&partial.buf
+                [super::PQS_INIT_EPHEMERAL_OFF..super::PQS_INIT_EK_E_OFF])
+                .try_into()
+                .unwrap();
+            let ek = &partial.buf
+                [super::PQS_INIT_EK_E_OFF..super::PQS_INIT_EK_E_OFF + super::MLKEM768_PK_SIZE];
+            let (chaining_key, hash, peer_ephemeral_public) =
+                self.pqs_init_suffix(partial.chaining_key, partial.hash, ephemeral, ek);
+            (chaining_key, hash, peer_ephemeral_public, ek.to_vec())
+        } else {
+            let ek = &partial.buf
+                [super::PQ_INIT_PREFIX_SZ..super::PQ_INIT_PREFIX_SZ + super::MLKEM768_PK_SIZE];
+            (
+                partial.chaining_key,
+                b2s_hash(&partial.hash, ek),
+                partial
+                    .peer_ephemeral_public
+                    .expect("type-5 prefix always carries the ephemeral"),
+                ek.to_vec(),
+            )
+        };
         self.state = HandshakeState::InitReceived {
-            chaining_key: partial.chaining_key,
+            chaining_key,
             hash,
-            peer_ephemeral_public: partial.peer_ephemeral_public,
+            peer_ephemeral_public,
             peer_index: partial.peer_index,
-            mlkem_encapsulation_key: Some(ek.to_vec()),
+            mlkem_encapsulation_key: Some(ek),
             pq_observed_stride: Some(partial.stride),
+            pqs: partial.pqs,
         };
         Ok(PqSegOutcome::InitComplete)
     }
@@ -1523,11 +2183,17 @@ impl Handshake {
         &mut self,
         packet: &super::PqSegment,
     ) -> Result<PqSegOutcome, WireGuardError> {
-        const TOTAL: usize = super::PQ_HANDSHAKE_RESP_SZ;
         let (state, is_previous) = match (&mut self.state, &mut self.previous) {
             (HandshakeState::InitSent(s), _) if s.local_index == packet.hs_id => (s, false),
             (_, HandshakeState::InitSent(s)) if s.local_index == packet.hs_id => (s, true),
             _ => return Err(WireGuardError::UnexpectedPacket),
+        };
+        // The response mode must match the outstanding initiation's
+        let pqs = state.pqs_seg_tag_key.is_some();
+        let (expected_type, total) = if pqs {
+            (super::PQS_HANDSHAKE_RESP, super::PQS_HANDSHAKE_RESP_SZ)
+        } else {
+            (super::PQ_HANDSHAKE_RESP, super::PQ_HANDSHAKE_RESP_SZ)
         };
 
         if packet.seg_idx == 0 {
@@ -1535,13 +2201,13 @@ impl Handshake {
             let stride = chunk.len();
             let cnt = packet.seg_cnt as usize;
             if stride < super::PQ_RESP_PREFIX_SZ
-                || stride * (cnt - 1) >= TOTAL
-                || stride * cnt < TOTAL
+                || stride * (cnt - 1) >= total
+                || stride * cnt < total
             {
                 return Err(WireGuardError::IncorrectPacketLength);
             }
             let inner_type = u32::from_le_bytes(chunk[0..4].try_into().unwrap());
-            if inner_type != super::PQ_HANDSHAKE_RESP {
+            if inner_type != expected_type {
                 return Err(WireGuardError::WrongPacketType);
             }
             let peer_index = u32::from_le_bytes(chunk[4..8].try_into().unwrap());
@@ -1586,7 +2252,9 @@ impl Handshake {
                 seg_cnt: packet.seg_cnt,
                 stride,
                 filled: 1,
-                buf: [0u8; TOTAL],
+                total,
+                pqs,
+                buf: [0u8; super::PQS_HANDSHAKE_RESP_SZ],
             });
             partial.buf[..stride].copy_from_slice(chunk);
             state.pq_partial_resp = Some(partial);
@@ -1598,12 +2266,13 @@ impl Handshake {
                 .pq_partial_resp
                 .as_mut()
                 .ok_or(WireGuardError::UnexpectedPacket)?;
+            let total = partial.total;
             pq_fill_segment(
                 &mut partial.filled,
                 partial.stride,
                 partial.seg_cnt,
                 &partial.seg_tag_key,
-                TOTAL,
+                total,
                 &mut partial.buf,
                 packet,
             )?
@@ -1614,22 +2283,34 @@ impl Handshake {
 
         // Assembly complete: resume at the decapsulation step
         let partial = state.pq_partial_resp.take().unwrap();
-        let ct: &[u8; super::MLKEM768_CT_SIZE] = (&partial.buf
-            [super::PQ_RESP_PREFIX_SZ..super::PQ_RESP_PREFIX_SZ + super::MLKEM768_CT_SIZE])
-            .try_into()
-            .unwrap();
-        let dk = state
+        let dk_e = state
             .mlkem_decapsulation_key
             .as_ref()
             .ok_or(WireGuardError::InvalidPacket)?;
-        let ss = dk
-            .try_decapsulate(ct.into())
-            .map_err(|_| WireGuardError::MlKemDecapsulationFailed)?;
-        // Mix ML-KEM shared secret into chaining key
-        let temp = b2s_hmac(&partial.chaining_key, ss.as_slice());
-        let mut chaining_key = b2s_hmac(&temp, &[0x01]);
-        // Mix ciphertext into hash (bind to transcript)
-        let mut hash = b2s_hash(&partial.hash, ct);
+        let (mut chaining_key, mut hash) = if partial.pqs {
+            pqs_absorb_response_ciphertexts(
+                partial.chaining_key,
+                partial.hash,
+                dk_e,
+                self.params
+                    .static_mlkem
+                    .as_ref()
+                    .ok_or(WireGuardError::WrongKey)?,
+                &partial.buf[super::PQS_RESP_CT_E_OFF..super::PQS_RESP_CT_S_OFF],
+                &partial.buf
+                    [super::PQS_RESP_CT_S_OFF..super::PQS_RESP_CT_S_OFF + super::MLKEM768_CT_SIZE],
+            )?
+        } else {
+            let ct: &[u8; super::MLKEM768_CT_SIZE] = (&partial.buf
+                [super::PQ_RESP_PREFIX_SZ..super::PQ_RESP_PREFIX_SZ + super::MLKEM768_CT_SIZE])
+                .try_into()
+                .unwrap();
+            let ss = dk_e
+                .try_decapsulate(ct.into())
+                .map_err(|_| WireGuardError::MlKemDecapsulationFailed)?;
+            let temp = b2s_hmac(&partial.chaining_key, ss.as_slice());
+            (b2s_hmac(&temp, &[0x01]), b2s_hash(&partial.hash, ct))
+        };
         // PSK mixing (unchanged)
         let temp = b2s_hmac(
             &chaining_key,
@@ -1726,9 +2407,16 @@ impl Handshake {
     #[cfg(feature = "pq")]
     pub(super) fn current_init_seg_params(&self) -> Option<(u32, [u8; KEY_LEN])> {
         match &self.state {
-            HandshakeState::InitSent(s) if s.mlkem_decapsulation_key.is_some() => {
-                Some((s.local_index, b2s_hmac(&s.chaining_key, LABEL_SEG)))
-            }
+            // Static auth captures the anchor at format time: unlike phase 1,
+            // the chain advances past the prefix boundary before the state is
+            // stored, so it cannot be re-derived from `chaining_key`
+            HandshakeState::InitSent(s) => match s.pqs_seg_tag_key {
+                Some(key) => Some((s.local_index, key)),
+                None if s.mlkem_decapsulation_key.is_some() => {
+                    Some((s.local_index, b2s_hmac(&s.chaining_key, LABEL_SEG)))
+                }
+                None => None,
+            },
             _ => None,
         }
     }
@@ -1761,6 +2449,45 @@ impl Handshake {
             }
         }
     }
+}
+
+/// Absorb the two ciphertexts of a static-auth response into the transcript:
+/// the one addressed to our ephemeral key (forward secrecy) and the one
+/// addressed to our long-term key (which is what authenticates us to the
+/// responder). Each ciphertext is hashed alongside the key it was made under,
+/// closing the KEM-binding gap.
+#[cfg(feature = "pq")]
+fn pqs_absorb_response_ciphertexts(
+    chaining_key: [u8; KEY_LEN],
+    hash: [u8; KEY_LEN],
+    dk_ephemeral: &ml_kem::DecapsulationKey768,
+    static_mlkem: &MlKemStaticSecret,
+    mlkem_ephemeral_ct: &[u8],
+    mlkem_static_ct: &[u8],
+) -> Result<([u8; KEY_LEN], [u8; KEY_LEN]), WireGuardError> {
+    let ct_e: &[u8; super::MLKEM768_CT_SIZE] = mlkem_ephemeral_ct
+        .try_into()
+        .map_err(|_| WireGuardError::InvalidPacket)?;
+    let ct_s: &[u8; super::MLKEM768_CT_SIZE] = mlkem_static_ct
+        .try_into()
+        .map_err(|_| WireGuardError::InvalidPacket)?;
+
+    let ss_e = dk_ephemeral
+        .try_decapsulate(ct_e.into())
+        .map_err(|_| WireGuardError::MlKemDecapsulationFailed)?;
+    let temp = b2s_hmac(&chaining_key, ss_e.as_slice());
+    let chaining_key = b2s_hmac(&temp, &[0x01]);
+    let hash = b2s_hash(&hash, ct_e);
+
+    let ss_s = static_mlkem
+        .dk
+        .try_decapsulate(ct_s.into())
+        .map_err(|_| WireGuardError::MlKemDecapsulationFailed)?;
+    let temp = b2s_hmac(&chaining_key, ss_s.as_slice());
+    let chaining_key = b2s_hmac(&temp, &[0x01]);
+    let hash = b2s_hash(&hash, ct_s);
+
+    Ok((chaining_key, hash))
 }
 
 /// The 12 header bytes of a type-7 segment (covered by the segment tag)
@@ -1864,6 +2591,84 @@ pub fn parse_pq_segment0_anon(
     )
 }
 
+/// Extract the initiator's static key from a type-8 initiation. Unlike the
+/// classical and phase-1 paths this needs the device's ML-KEM decapsulation
+/// key, since the identity field is sealed under the static-KEM secret — which
+/// is exactly the property that makes the identity post-quantum confidential.
+#[cfg(feature = "pq")]
+pub fn parse_pqs_handshake_anon(
+    static_mlkem: &MlKemStaticSecret,
+    static_public: &x25519::PublicKey,
+    packet: &PqsHandshakeInit,
+) -> Result<HalfHandshake, WireGuardError> {
+    parse_pqs_prefix_anon(
+        static_mlkem,
+        static_public,
+        packet.sender_idx,
+        packet.mlkem_static_ct,
+        packet.encrypted_static,
+    )
+}
+
+/// Extract the initiator's static key from segment 0 of a segmented type-8
+/// initiation (the chunk starts with the inner message's prefix).
+#[cfg(feature = "pq")]
+pub fn parse_pqs_segment0_anon(
+    static_mlkem: &MlKemStaticSecret,
+    static_public: &x25519::PublicKey,
+    chunk: &[u8],
+) -> Result<HalfHandshake, WireGuardError> {
+    if chunk.len() < super::PQS_INIT_PREFIX_SZ {
+        return Err(WireGuardError::InvalidPacket);
+    }
+    let inner_type = u32::from_le_bytes(chunk[0..4].try_into().unwrap());
+    if inner_type != super::PQS_HANDSHAKE_INIT {
+        return Err(WireGuardError::WrongPacketType);
+    }
+    let sender_idx = u32::from_le_bytes(chunk[4..8].try_into().unwrap());
+    parse_pqs_prefix_anon(
+        static_mlkem,
+        static_public,
+        sender_idx,
+        &chunk[super::PQS_INIT_CT_S_OFF..super::PQS_INIT_ENC_STATIC_OFF],
+        &chunk[super::PQS_INIT_ENC_STATIC_OFF..super::PQS_INIT_ENC_TIMESTAMP_OFF],
+    )
+}
+
+#[cfg(feature = "pq")]
+fn parse_pqs_prefix_anon(
+    static_mlkem: &MlKemStaticSecret,
+    static_public: &x25519::PublicKey,
+    peer_index: u32,
+    mlkem_static_ct: &[u8],
+    encrypted_static: &[u8],
+) -> Result<HalfHandshake, WireGuardError> {
+    let mut chaining_key = INITIAL_CHAIN_KEY_PQS;
+    let mut hash = INITIAL_CHAIN_HASH_PQS;
+    hash = b2s_hash(&hash, static_public.as_bytes());
+    hash = b2s_hash(&hash, static_mlkem.encapsulation_key_bytes());
+
+    let ct: &[u8; super::MLKEM768_CT_SIZE] = mlkem_static_ct
+        .try_into()
+        .map_err(|_| WireGuardError::InvalidPacket)?;
+    let ss_s = static_mlkem
+        .dk
+        .try_decapsulate(ct.into())
+        .map_err(|_| WireGuardError::MlKemDecapsulationFailed)?;
+    hash = b2s_hash(&hash, mlkem_static_ct);
+    let temp = b2s_hmac(&chaining_key, ss_s.as_slice());
+    chaining_key = b2s_hmac(&temp, &[0x01]);
+    let key = b2s_hmac2(&temp, &chaining_key, &[0x02]);
+
+    let mut peer_static_public = [0u8; KEY_LEN];
+    aead_chacha20_open(&mut peer_static_public, &key, 0, encrypted_static, &hash)?;
+
+    Ok(HalfHandshake {
+        peer_index,
+        peer_static_public,
+    })
+}
+
 /// The classical prefix of a PQ init is transcript-compatible only with the
 /// domain-separated PQ chain; static key extraction runs on that chain.
 #[cfg(feature = "pq")]
@@ -1953,6 +2758,39 @@ mod tests {
         // And they must differ from the classical chain (domain separation)
         assert_ne!(INITIAL_CHAIN_KEY_PQ, INITIAL_CHAIN_KEY);
         assert_ne!(INITIAL_CHAIN_HASH_PQ, INITIAL_CHAIN_HASH);
+    }
+
+    /// Same pinning for the static-auth chain (types 8/9):
+    /// INITIAL_CHAIN_KEY_PQS = BLAKE2s(CONSTRUCTION_PQS)
+    /// INITIAL_CHAIN_HASH_PQS = BLAKE2s(INITIAL_CHAIN_KEY_PQS || IDENTIFIER)
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pqs_chain_constants_match_construction() {
+        let key = b2s_hash(CONSTRUCTION_PQS, &[]);
+        assert_eq!(key, INITIAL_CHAIN_KEY_PQS);
+        let hash = b2s_hash(&key, IDENTIFIER);
+        assert_eq!(hash, INITIAL_CHAIN_HASH_PQS);
+        // Distinct from both the classical and the ephemeral-only PQ chain:
+        // a type-8 transcript can never be replayed onto either
+        assert_ne!(INITIAL_CHAIN_KEY_PQS, INITIAL_CHAIN_KEY);
+        assert_ne!(INITIAL_CHAIN_KEY_PQS, INITIAL_CHAIN_KEY_PQ);
+        assert_ne!(INITIAL_CHAIN_HASH_PQS, INITIAL_CHAIN_HASH);
+        assert_ne!(INITIAL_CHAIN_HASH_PQS, INITIAL_CHAIN_HASH_PQ);
+    }
+
+    /// The static ML-KEM keypair round-trips through its 64-byte seed, which
+    /// is the form the UAPI carries.
+    #[test]
+    #[cfg(feature = "pq")]
+    fn mlkem_static_secret_seed_roundtrip() {
+        let mut seed = [0u8; super::super::MLKEM768_SEED_SIZE];
+        rand_core::RngCore::fill_bytes(&mut OsRng, &mut seed);
+        let a = MlKemStaticSecret::from_seed(&seed);
+        let b = MlKemStaticSecret::from_seed(&seed);
+        assert_eq!(a.encapsulation_key_bytes(), b.encapsulation_key_bytes());
+        // ...and the derived public key is a valid encapsulation key
+        assert!(MlKemPublicKey::from_bytes(a.encapsulation_key_bytes()).is_ok());
+        assert!(MlKemPublicKey::from_bytes(&[0u8; 16]).is_err());
     }
 
     #[test]

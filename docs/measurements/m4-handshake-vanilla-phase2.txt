@@ -1,0 +1,27 @@
+# handshake_benches, vanilla build (no pq feature), 2026-07-29T06:02:05Z
+# Apple M4 Pro
+
+   Compiling boringtun v0.7.0 (/Users/mihaicristianfarcas/Projects/pq-boringtun/boringtun)
+    Finished `bench` profile [optimized] target(s) in 14.80s
+     Running benches/handshake_benches/main.rs (target/release/deps/handshake_benches-9203209a6888935e)
+Gnuplot not found, using plotters backend
+Benchmarking handshake/psk_slot
+Benchmarking handshake/psk_slot: Warming up for 3.0000 s
+Benchmarking handshake/psk_slot: Collecting 500 samples in estimated 5.0963 s (22k iterations)
+Benchmarking handshake/psk_slot: Analyzing
+handshake/psk_slot      time:   [155.39 µs 155.65 µs 155.91 µs]
+                        change: [+3.3538% +3.5903% +3.8282%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 3 outliers among 500 measurements (0.60%)
+  2 (0.40%) low mild
+  1 (0.20%) high mild
+Benchmarking handshake/vanilla
+Benchmarking handshake/vanilla: Warming up for 3.0000 s
+Benchmarking handshake/vanilla: Collecting 500 samples in estimated 5.0928 s (22k iterations)
+Benchmarking handshake/vanilla: Analyzing
+handshake/vanilla       time:   [154.74 µs 154.96 µs 155.16 µs]
+                        change: [+2.4831% +2.7092% +2.9303%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 20 outliers among 500 measurements (4.00%)
+  14 (2.80%) low mild
+  6 (1.20%) high mild

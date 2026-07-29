@@ -1,0 +1,44 @@
+# handshake_benches, --features pq (hybrid + static auth), 2026-07-29T06:00:03Z
+# Apple M4 Pro
+
+   Compiling boringtun v0.7.0 (/Users/mihaicristianfarcas/Projects/pq-boringtun/boringtun)
+...
+    Finished `bench` profile [optimized] target(s) in 1m 23s
+     Running benches/handshake_benches/main.rs (target/release/deps/handshake_benches-a40f8156aebddcb7)
+Gnuplot not found, using plotters backend
+Benchmarking handshake/hybrid
+Benchmarking handshake/hybrid: Warming up for 3.0000 s
+Benchmarking handshake/hybrid: Collecting 500 samples in estimated 5.0379 s (15k iterations)
+Benchmarking handshake/hybrid: Analyzing
+handshake/hybrid        time:   [247.99 µs 248.26 µs 248.51 µs]
+                        change: [-1.6333% -1.4565% -1.2968%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 28 outliers among 500 measurements (5.60%)
+  1 (0.20%) low severe
+  23 (4.60%) low mild
+  4 (0.80%) high mild
+Benchmarking handshake/static_auth
+Benchmarking handshake/static_auth: Warming up for 3.0000 s
+Benchmarking handshake/static_auth: Collecting 500 samples in estimated 5.0273 s (10k iterations)
+Benchmarking handshake/static_auth: Analyzing
+handshake/static_auth   time:   [366.33 µs 366.71 µs 367.10 µs]
+                        change: [-1.5230% -1.3558% -1.1938%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 20 outliers among 500 measurements (4.00%)
+  3 (0.60%) low severe
+  9 (1.80%) low mild
+  7 (1.40%) high mild
+  1 (0.20%) high severe
+Benchmarking handshake/static_auth_segmented_1280
+Benchmarking handshake/static_auth_segmented_1280: Warming up for 3.0000 s
+Benchmarking handshake/static_auth_segmented_1280: Collecting 500 samples in estimated 5.0200 s (9500 iterations)
+Benchmarking handshake/static_auth_segmented_1280: Analyzing
+handshake/static_auth_segmented_1280
+                        time:   [391.14 µs 391.67 µs 392.26 µs]
+                        change: [-1.5348% -1.3268% -1.1155%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 20 outliers among 500 measurements (4.00%)
+  1 (0.20%) low severe
+  11 (2.20%) low mild
+  7 (1.40%) high mild
+  1 (0.20%) high severe

@@ -1,0 +1,16 @@
+# preauth_benches, vanilla build (no pq feature), 2026-07-29T05:59:31Z
+# Apple M4 Pro
+
+   Compiling boringtun v0.7.0 (/Users/mihaicristianfarcas/Projects/pq-boringtun/boringtun)
+    Finished `bench` profile [optimized] target(s) in 13.02s
+     Running benches/preauth_benches/main.rs (target/release/deps/preauth_benches-de323695c8ebb4fb)
+Gnuplot not found, using plotters backend
+Benchmarking preauth/classical_type1
+Benchmarking preauth/classical_type1: Warming up for 3.0000 s
+Benchmarking preauth/classical_type1: Collecting 500 samples in estimated 5.4674 s (250k iterations)
+Benchmarking preauth/classical_type1: Analyzing
+preauth/classical_type1 time:   [21.823 µs 21.853 µs 21.882 µs]
+Found 39 outliers among 500 measurements (7.80%)
+  26 (5.20%) low mild
+  11 (2.20%) high mild
+  2 (0.40%) high severe

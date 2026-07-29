@@ -173,12 +173,28 @@ fn api_get(writer: &mut BufWriter<&UnixStream>, d: &Device) -> i32 {
         writeln!(writer, "pq_path_mtu={}", d.pq_path_mtu());
     }
 
+    // The seed is never read back out; only the public half is exposed, so an
+    // operator can hand it to peers without touching the key file.
+    #[cfg(feature = "pq")]
+    if let Some(k) = d.mlkem_key() {
+        writeln!(
+            writer,
+            "own_mlkem_public_key={}",
+            encode_hex(k.encapsulation_key_bytes())
+        );
+    }
+
     for (k, p) in d.peers.iter() {
         let p = p.lock();
         writeln!(writer, "public_key={}", encode_hex(k.as_bytes()));
 
         if let Some(ref key) = p.preshared_key() {
             writeln!(writer, "preshared_key={}", encode_hex(key));
+        }
+
+        #[cfg(feature = "pq")]
+        if let Some(ek) = p.tunnel.pq_peer_mlkem_public_key() {
+            writeln!(writer, "mlkem_public_key={}", encode_hex(ek));
         }
 
         if let Some(keepalive) = p.persistent_keepalive() {
@@ -261,9 +277,16 @@ fn api_set(reader: &mut BufReader<&UnixStream>, d: &mut LockReadGuard<Device>) -
                         #[cfg(feature = "pq")]
                         "pq_path_mtu" => match val.parse::<u16>() {
                             Ok(mtu) if mtu == 0 || mtu >= crate::noise::PQ_MIN_PATH_MTU => {
-                                device.set_pq_path_mtu(mtu)
+                                if device.set_pq_path_mtu(mtu).is_err() {
+                                    return EINVAL;
+                                }
                             }
                             _ => return EINVAL,
+                        },
+                        #[cfg(feature = "pq")]
+                        "mlkem_private_key" => match parse_mlkem_seed(val) {
+                            Some(seed) => device.set_mlkem_key(&seed),
+                            None => return EINVAL,
                         },
                         "public_key" => match val.parse::<KeyBytes>() {
                             // Indicates a new peer section
@@ -288,6 +311,22 @@ fn api_set(reader: &mut BufReader<&UnixStream>, d: &mut LockReadGuard<Device>) -
     .unwrap_or(EIO)
 }
 
+/// Parse a hex-encoded 64-byte ML-KEM seed, the storage form of a
+/// decapsulation key.
+#[cfg(feature = "pq")]
+fn parse_mlkem_seed(val: &str) -> Option<[u8; crate::noise::MLKEM768_SEED_SIZE]> {
+    use std::convert::TryInto;
+    let bytes = hex::decode(val).ok()?;
+    bytes.as_slice().try_into().ok()
+}
+
+/// Parse a hex-encoded 1184-byte ML-KEM-768 encapsulation key
+#[cfg(feature = "pq")]
+fn parse_mlkem_public_key(val: &str) -> Option<crate::noise::handshake::MlKemPublicKey> {
+    let bytes = hex::decode(val).ok()?;
+    crate::noise::handshake::MlKemPublicKey::from_bytes(&bytes).ok()
+}
+
 fn api_set_peer(
     reader: &mut BufReader<&UnixStream>,
     d: &mut Device,
@@ -301,6 +340,8 @@ fn api_set_peer(
     let mut keepalive = None;
     let mut public_key = pub_key;
     let mut preshared_key = None;
+    #[cfg(feature = "pq")]
+    let mut mlkem_public_key = None;
     let mut allowed_ips: Vec<AllowedIP> = vec![];
     while reader.read_line(&mut cmd).is_ok() {
         cmd.pop(); // remove newline if any
@@ -313,6 +354,8 @@ fn api_set_peer(
                 allowed_ips.as_slice(),
                 keepalive,
                 preshared_key,
+                #[cfg(feature = "pq")]
+                mlkem_public_key,
             );
             allowed_ips.clear(); //clear the vector content after update
             return 0; // Done
@@ -332,6 +375,23 @@ fn api_set_peer(
                 "preshared_key" => match val.parse::<KeyBytes>() {
                     Ok(key_bytes) => preshared_key = Some(key_bytes.0),
                     Err(_) => return EINVAL,
+                },
+                #[cfg(feature = "pq")]
+                "mlkem_public_key" => match parse_mlkem_public_key(val) {
+                    // Both of these would otherwise leave the peer silently
+                    // running in the weaker phase-1 mode, so they are
+                    // config-time errors: a peer key is useless without a
+                    // device key, and a path MTU that cannot carry the
+                    // authenticating prefix in segment 0 cannot carry this
+                    // mode at all.
+                    Some(key)
+                        if d.mlkem_key().is_some()
+                            && (d.pq_path_mtu() == 0
+                                || d.pq_path_mtu() >= crate::noise::PQS_MIN_PATH_MTU) =>
+                    {
+                        mlkem_public_key = Some(key)
+                    }
+                    _ => return EINVAL,
                 },
                 "endpoint" => match val.parse::<SocketAddr>() {
                     Ok(addr) => endpoint = Some(addr),
@@ -360,6 +420,8 @@ fn api_set_peer(
                         allowed_ips.as_slice(),
                         keepalive,
                         preshared_key,
+                        #[cfg(feature = "pq")]
+                        mlkem_public_key.take(),
                     );
                     allowed_ips.clear(); //clear the vector content after update
                     match val.parse::<KeyBytes>() {

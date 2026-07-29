@@ -74,3 +74,7 @@ harness = false
 [[bench]]
 name = "handshake_benches"
 harness = false
+
+[[bench]]
+name = "preauth_benches"
+harness = false

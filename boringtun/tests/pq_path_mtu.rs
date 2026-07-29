@@ -106,6 +106,27 @@ struct Fixture {
     relay: UdpSocket,
 }
 
+/// Wire an existing fixture for static-KEM authentication (message types
+/// 8/9), giving each side its own long-term ML-KEM keypair.
+fn with_static_auth(f: &mut Fixture) {
+    use boringtun::noise::handshake::{MlKemPublicKey, MlKemStaticSecret};
+    use boringtun::noise::MLKEM768_SEED_SIZE;
+    use rand_core::RngCore;
+    use std::sync::Arc;
+
+    fn keypair() -> Arc<MlKemStaticSecret> {
+        let mut seed = [0u8; MLKEM768_SEED_SIZE];
+        OsRng.fill_bytes(&mut seed);
+        Arc::new(MlKemStaticSecret::from_seed(&seed))
+    }
+
+    let (a_mlkem, b_mlkem) = (keypair(), keypair());
+    let a_ek = MlKemPublicKey::from_bytes(a_mlkem.encapsulation_key_bytes()).unwrap();
+    let b_ek = MlKemPublicKey::from_bytes(b_mlkem.encapsulation_key_bytes()).unwrap();
+    f.a.tun.set_pq_static_auth(a_mlkem, b_ek).unwrap();
+    f.b.tun.set_pq_static_auth(b_mlkem, a_ek).unwrap();
+}
+
 fn fixture(mtu_a: u16, mtu_b: u16) -> Fixture {
     let a_secret = x25519::StaticSecret::random_from_rng(OsRng);
     let a_public = x25519::PublicKey::from(&a_secret);
@@ -213,6 +234,60 @@ fn pq_handshake_crosses_576_path_when_segmented() {
         f.a.sent.iter().all(|&s| s <= 576) && f.b.sent.iter().all(|&s| s <= 576),
         "a datagram exceeded the path MTU: a={:?} b={:?}",
         f.a.sent,
+        f.b.sent
+    );
+}
+
+/// Static auth over a 1280-byte path: the 2420-byte initiation and the
+/// 2268-byte response both cross a link that would otherwise pass neither.
+/// This is the case the whole message layout was designed around — segment 0
+/// carries the full 1172-byte authenticating prefix and lands at exactly
+/// 1232 bytes of UDP payload.
+#[test]
+fn pqs_handshake_crosses_1280_path_when_segmented() {
+    let mut f = fixture(1280, 1280);
+    with_static_auth(&mut f);
+    let (delivered, dropped) = run_through_path(&mut f, 1280);
+    assert!(delivered, "data did not reach the far side");
+    assert_eq!(dropped, 0, "the path dropped {} datagram(s)", dropped);
+    assert!(
+        f.a.sent.iter().all(|&s| s <= 1280) && f.b.sent.iter().all(|&s| s <= 1280),
+        "a datagram exceeded the path MTU: a={:?} b={:?}",
+        f.a.sent,
+        f.b.sent
+    );
+    // The initiation is the first three datagrams the initiator sends (the
+    // keepalive and the queued payload follow), and segment 0 carries exactly
+    // 1232 bytes of UDP payload: the authenticating prefix plus its 60 bytes
+    // of segment overhead, filling an IPv6-minimum path to the byte.
+    assert!(f.a.sent.len() >= 3, "initiator datagrams: {:?}", f.a.sent);
+    assert_eq!(f.a.sent[0] - IP_UDP_OVERHEAD, 1232);
+    assert_eq!(f.b.sent.len(), 2, "responder datagrams: {:?}", f.b.sent);
+}
+
+/// Without segmentation a static-auth initiation cannot cross a 1500-byte
+/// path either — it is 2420 bytes — so the tunnel never comes up.
+#[test]
+fn pqs_handshake_blocked_by_1500_path_without_segmentation() {
+    let mut f = fixture(0, 0);
+    with_static_auth(&mut f);
+    let (delivered, dropped) = run_through_path(&mut f, 1500);
+    assert!(!delivered, "handshake should not have completed");
+    assert!(dropped > 0, "the path should have dropped the oversized init");
+}
+
+/// Static auth with only the initiator configured: the responder mirrors the
+/// observed stride, exactly as it does for phase-1 messages.
+#[test]
+fn pqs_responder_mirrors_stride_across_1280_path() {
+    let mut f = fixture(1280, 0);
+    with_static_auth(&mut f);
+    let (delivered, dropped) = run_through_path(&mut f, 1280);
+    assert!(delivered, "data did not reach the far side");
+    assert_eq!(dropped, 0, "the path dropped {} datagram(s)", dropped);
+    assert!(
+        f.b.sent.iter().all(|&s| s <= 1280),
+        "unconfigured responder sent an oversized datagram: {:?}",
         f.b.sent
     );
 }

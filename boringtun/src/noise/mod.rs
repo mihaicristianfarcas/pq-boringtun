@@ -138,10 +138,51 @@ const PQ_HANDSHAKE_RESP: MessageType = 6;
 pub(crate) const MLKEM768_PK_SIZE: usize = 1184;
 #[cfg(feature = "pq")]
 pub(crate) const MLKEM768_CT_SIZE: usize = 1088;
+/// FIPS 203 `(d, z)` seed, the storage form of a decapsulation key
+#[cfg(feature = "pq")]
+pub const MLKEM768_SEED_SIZE: usize = 64;
 #[cfg(feature = "pq")]
 const PQ_HANDSHAKE_INIT_SZ: usize = 1332; // 148 - 32 (MACs) + 1184 (ML-KEM ek) + 32 (MACs) = 116 + 1184 + 32
 #[cfg(feature = "pq")]
 const PQ_HANDSHAKE_RESP_SZ: usize = 1180; // 92 - 32 (MACs) + 1088 (ML-KEM ct) + 32 (MACs) = 60 + 1088 + 32
+
+// Static-ML-KEM-authenticated handshake (message types 8/9). The static-KEM
+// ciphertext precedes the encrypted identity so the identity is protected by
+// ML-KEM rather than X25519; the X25519 ephemeral therefore has to sit *after*
+// the authenticating prefix, which is what keeps segment 0 within a 1280-byte
+// path (1172 + 60 = 1232, the IPv6 UDP payload limit, exactly).
+#[cfg(feature = "pq")]
+pub(crate) const PQS_HANDSHAKE_INIT: MessageType = 8;
+#[cfg(feature = "pq")]
+pub(crate) const PQS_HANDSHAKE_RESP: MessageType = 9;
+/// type | sender_idx | mlkem_static_ct | encrypted_static | encrypted_timestamp
+/// | unencrypted_ephemeral | mlkem_ephemeral_ek | mac1 | mac2
+#[cfg(feature = "pq")]
+pub(crate) const PQS_HANDSHAKE_INIT_SZ: usize = 2420;
+/// type | sender_idx | receiver_idx | unencrypted_ephemeral | encrypted_nothing
+/// | mlkem_ephemeral_ct | mlkem_static_ct | mac1 | mac2
+#[cfg(feature = "pq")]
+pub(crate) const PQS_HANDSHAKE_RESP_SZ: usize = 2268;
+#[cfg(feature = "pq")]
+pub(crate) const PQS_INIT_CT_S_OFF: usize = 8;
+#[cfg(feature = "pq")]
+pub(crate) const PQS_INIT_ENC_STATIC_OFF: usize = PQS_INIT_CT_S_OFF + MLKEM768_CT_SIZE; // 1096
+#[cfg(feature = "pq")]
+pub(crate) const PQS_INIT_ENC_TIMESTAMP_OFF: usize = PQS_INIT_ENC_STATIC_OFF + 32 + 16; // 1144
+/// Everything that authenticates the initiator; must ride in segment 0
+#[cfg(feature = "pq")]
+pub(crate) const PQS_INIT_PREFIX_SZ: usize = PQS_INIT_ENC_TIMESTAMP_OFF + 12 + 16; // 1172
+#[cfg(feature = "pq")]
+pub(crate) const PQS_INIT_EPHEMERAL_OFF: usize = PQS_INIT_PREFIX_SZ; // 1172
+#[cfg(feature = "pq")]
+pub(crate) const PQS_INIT_EK_E_OFF: usize = PQS_INIT_EPHEMERAL_OFF + 32; // 1204
+/// Same 60-byte classical prefix as the phase-1 response
+#[cfg(feature = "pq")]
+pub(crate) const PQS_RESP_PREFIX_SZ: usize = 60;
+#[cfg(feature = "pq")]
+pub(crate) const PQS_RESP_CT_E_OFF: usize = PQS_RESP_PREFIX_SZ; // 60
+#[cfg(feature = "pq")]
+pub(crate) const PQS_RESP_CT_S_OFF: usize = PQS_RESP_CT_E_OFF + MLKEM768_CT_SIZE; // 1148
 
 // PQ handshake segmentation (message type 7). A type-7 segment is:
 // type (u32 LE) | hs_id (u32 LE) | seg_idx (u8) | seg_cnt (u8) | 2 reserved
@@ -179,6 +220,13 @@ const PQ_IP_UDP_OVERHEAD: usize = 48;
 /// classical prefix with headroom. 0 disables segmentation entirely.
 #[cfg(feature = "pq")]
 pub const PQ_MIN_PATH_MTU: u16 = 256;
+/// Smallest `pq_path_mtu` a static-auth peer can run on. Segment 0 must carry
+/// the 1172-byte authenticating prefix, so
+/// 1172 + 60 (segment overhead) + 48 (IPv6 + UDP) = 1280 exactly. No ML-KEM
+/// parameter set has a small enough ciphertext to go below this, so
+/// lower-MTU paths run the phase-1 ephemeral-only mode instead.
+#[cfg(feature = "pq")]
+pub const PQS_MIN_PATH_MTU: u16 = 1280;
 
 #[derive(Debug)]
 pub struct HandshakeInit<'a> {
@@ -230,6 +278,28 @@ pub struct PqHandshakeResponse<'a> {
     pub mlkem_ciphertext: &'a [u8],
 }
 
+#[cfg(feature = "pq")]
+#[derive(Debug)]
+pub struct PqsHandshakeInit<'a> {
+    pub sender_idx: u32,
+    pub mlkem_static_ct: &'a [u8],
+    pub encrypted_static: &'a [u8],
+    pub encrypted_timestamp: &'a [u8],
+    pub unencrypted_ephemeral: &'a [u8; 32],
+    pub mlkem_ephemeral_ek: &'a [u8],
+}
+
+#[cfg(feature = "pq")]
+#[derive(Debug)]
+pub struct PqsHandshakeResponse<'a> {
+    pub sender_idx: u32,
+    pub receiver_idx: u32,
+    pub unencrypted_ephemeral: &'a [u8; 32],
+    pub encrypted_nothing: &'a [u8],
+    pub mlkem_ephemeral_ct: &'a [u8],
+    pub mlkem_static_ct: &'a [u8],
+}
+
 /// One segment of a segmented PQ handshake message (type 7)
 #[cfg(feature = "pq")]
 #[derive(Debug)]
@@ -255,6 +325,10 @@ pub enum Packet<'a> {
     PqHandshakeInit(PqHandshakeInit<'a>),
     #[cfg(feature = "pq")]
     PqHandshakeResponse(PqHandshakeResponse<'a>),
+    #[cfg(feature = "pq")]
+    PqsHandshakeInit(PqsHandshakeInit<'a>),
+    #[cfg(feature = "pq")]
+    PqsHandshakeResponse(PqsHandshakeResponse<'a>),
     #[cfg(feature = "pq")]
     PqSegment(PqSegment<'a>),
 }
@@ -314,6 +388,34 @@ impl Tunn {
                         .expect("length already checked above"),
                     encrypted_nothing: &src[44..60],
                     mlkem_ciphertext: &src[60..60 + MLKEM768_CT_SIZE],
+                })
+            }
+            #[cfg(feature = "pq")]
+            (PQS_HANDSHAKE_INIT, PQS_HANDSHAKE_INIT_SZ) => {
+                Packet::PqsHandshakeInit(PqsHandshakeInit {
+                    sender_idx: u32::from_le_bytes(src[4..8].try_into().unwrap()),
+                    mlkem_static_ct: &src[PQS_INIT_CT_S_OFF..PQS_INIT_ENC_STATIC_OFF],
+                    encrypted_static: &src[PQS_INIT_ENC_STATIC_OFF..PQS_INIT_ENC_TIMESTAMP_OFF],
+                    encrypted_timestamp: &src[PQS_INIT_ENC_TIMESTAMP_OFF..PQS_INIT_PREFIX_SZ],
+                    unencrypted_ephemeral: <&[u8; 32]>::try_from(
+                        &src[PQS_INIT_EPHEMERAL_OFF..PQS_INIT_EK_E_OFF],
+                    )
+                    .expect("length already checked above"),
+                    mlkem_ephemeral_ek: &src
+                        [PQS_INIT_EK_E_OFF..PQS_INIT_EK_E_OFF + MLKEM768_PK_SIZE],
+                })
+            }
+            #[cfg(feature = "pq")]
+            (PQS_HANDSHAKE_RESP, PQS_HANDSHAKE_RESP_SZ) => {
+                Packet::PqsHandshakeResponse(PqsHandshakeResponse {
+                    sender_idx: u32::from_le_bytes(src[4..8].try_into().unwrap()),
+                    receiver_idx: u32::from_le_bytes(src[8..12].try_into().unwrap()),
+                    unencrypted_ephemeral: <&[u8; 32]>::try_from(&src[12..44])
+                        .expect("length already checked above"),
+                    encrypted_nothing: &src[44..PQS_RESP_PREFIX_SZ],
+                    mlkem_ephemeral_ct: &src[PQS_RESP_CT_E_OFF..PQS_RESP_CT_S_OFF],
+                    mlkem_static_ct: &src
+                        [PQS_RESP_CT_S_OFF..PQS_RESP_CT_S_OFF + MLKEM768_CT_SIZE],
                 })
             }
             #[cfg(feature = "pq")]
@@ -409,14 +511,56 @@ impl Tunn {
 
     /// Configure the path MTU that PQ handshake messages must fit; messages
     /// exceeding it are split into type-7 segments. 0 (the default) disables
-    /// segmentation; nonzero values below [`PQ_MIN_PATH_MTU`] are rejected.
+    /// segmentation; nonzero values below [`PQ_MIN_PATH_MTU`] are rejected,
+    /// as are values below [`PQS_MIN_PATH_MTU`] once this peer is configured
+    /// for static-KEM authentication.
     #[cfg(feature = "pq")]
     pub fn set_pq_path_mtu(&mut self, mtu: u16) -> Result<(), WireGuardError> {
-        if mtu != 0 && mtu < PQ_MIN_PATH_MTU {
+        let floor = if self.handshake.pqs_enabled() {
+            PQS_MIN_PATH_MTU
+        } else {
+            PQ_MIN_PATH_MTU
+        };
+        if mtu != 0 && mtu < floor {
             return Err(WireGuardError::InvalidParameter);
         }
         self.pq_path_mtu = mtu;
         Ok(())
+    }
+
+    /// Configure static-KEM authentication for this peer: our device's
+    /// long-term ML-KEM-768 keypair and the peer's encapsulation key. Once
+    /// set, this peer speaks message types 8/9 exclusively — inbound types 1,
+    /// 2, 5 and 6 are dropped, so an attacker who breaks X25519 cannot
+    /// downgrade the exchange.
+    ///
+    /// Rejected when the configured `pq_path_mtu` is below
+    /// [`PQS_MIN_PATH_MTU`]: a static-auth initiation cannot be segmented
+    /// onto such a path without buffering unauthenticated bytes.
+    #[cfg(feature = "pq")]
+    pub fn set_pq_static_auth(
+        &mut self,
+        static_mlkem: std::sync::Arc<handshake::MlKemStaticSecret>,
+        peer_static_mlkem: handshake::MlKemPublicKey,
+    ) -> Result<(), WireGuardError> {
+        if self.pq_path_mtu != 0 && self.pq_path_mtu < PQS_MIN_PATH_MTU {
+            return Err(WireGuardError::InvalidParameter);
+        }
+        self.handshake
+            .set_pq_static_auth(static_mlkem, peer_static_mlkem);
+        Ok(())
+    }
+
+    /// Whether this peer is configured for static-KEM authentication
+    #[cfg(feature = "pq")]
+    pub fn pq_static_auth_enabled(&self) -> bool {
+        self.handshake.pqs_enabled()
+    }
+
+    /// The peer's configured long-term ML-KEM-768 encapsulation key, if any
+    #[cfg(feature = "pq")]
+    pub fn pq_peer_mlkem_public_key(&self) -> Option<&[u8; MLKEM768_PK_SIZE]> {
+        self.handshake.peer_mlkem_public_key()
     }
 
     /// The stride to segment an outbound message of `msg_len` bytes with, or
@@ -465,7 +609,12 @@ impl Tunn {
     ///
     /// # Panics
     /// Panics if dst buffer is too small.
-    /// Size of dst should be at least src.len() + 32, and no less than 148 bytes.
+    /// Size of dst should be at least src.len() + 32. It must also be large
+    /// enough for a handshake initiation, since one may be emitted here: 148
+    /// bytes classically, and in a `pq` build up to
+    /// [`PQS_HANDSHAKE_INIT_SZ`] plus per-segment overhead when the message
+    /// is segmented. A buffer of `MAX_UDP_SIZE`, as the device layer uses,
+    /// always suffices.
     pub fn encapsulate<'a>(&mut self, src: &[u8], dst: &'a mut [u8]) -> TunnResult<'a> {
         let current = self.current;
         if let Some(ref session) = self.sessions[current % N_SESSIONS] {
@@ -525,6 +674,28 @@ impl Tunn {
         packet: Packet,
         dst: &'a mut [u8],
     ) -> TunnResult<'a> {
+        // Mode is per-peer configuration, never negotiated in band. A peer
+        // configured for static-KEM authentication accepts nothing but types
+        // 8/9 (and the type-7 segments carrying them), and a peer that is not
+        // so configured accepts nothing that claims to be. Without this an
+        // attacker who breaks X25519 could simply send a type-1 initiation
+        // and bypass the entire post-quantum layer.
+        #[cfg(feature = "pq")]
+        {
+            let pqs = self.handshake.pqs_enabled();
+            let permitted = match &packet {
+                Packet::HandshakeInit(_)
+                | Packet::HandshakeResponse(_)
+                | Packet::PqHandshakeInit(_)
+                | Packet::PqHandshakeResponse(_) => !pqs,
+                Packet::PqsHandshakeInit(_) | Packet::PqsHandshakeResponse(_) => pqs,
+                _ => true,
+            };
+            if !permitted {
+                return TunnResult::Err(WireGuardError::WrongPacketType);
+            }
+        }
+
         match packet {
             Packet::HandshakeInit(p) => self.handle_handshake_init(p, dst),
             Packet::HandshakeResponse(p) => self.handle_handshake_response(p, dst),
@@ -534,6 +705,10 @@ impl Tunn {
             Packet::PqHandshakeInit(p) => self.handle_pq_handshake_init(p, dst),
             #[cfg(feature = "pq")]
             Packet::PqHandshakeResponse(p) => self.handle_pq_handshake_response(p, dst),
+            #[cfg(feature = "pq")]
+            Packet::PqsHandshakeInit(p) => self.handle_pqs_handshake_init(p, dst),
+            #[cfg(feature = "pq")]
+            Packet::PqsHandshakeResponse(p) => self.handle_pqs_handshake_response(p, dst),
             #[cfg(feature = "pq")]
             Packet::PqSegment(p) => self.handle_pq_segment(p, dst),
         }
@@ -627,28 +802,101 @@ impl Tunn {
         self.pq_send_handshake_response(dst)
     }
 
+    #[cfg(feature = "pq")]
+    fn handle_pqs_handshake_init<'a>(
+        &mut self,
+        p: PqsHandshakeInit,
+        dst: &'a mut [u8],
+    ) -> Result<TunnResult<'a>, WireGuardError> {
+        tracing::debug!(
+            message = "Received pqs_handshake_initiation",
+            remote_idx = p.sender_idx
+        );
+
+        self.handshake.receive_pqs_handshake_initialization(p)?;
+
+        self.pq_send_handshake_response(dst)
+    }
+
+    #[cfg(feature = "pq")]
+    fn handle_pqs_handshake_response<'a>(
+        &mut self,
+        p: PqsHandshakeResponse,
+        dst: &'a mut [u8],
+    ) -> Result<TunnResult<'a>, WireGuardError> {
+        tracing::debug!(
+            message = "Received pqs_handshake_response",
+            local_idx = p.receiver_idx,
+            remote_idx = p.sender_idx
+        );
+
+        let session = self.handshake.receive_pqs_handshake_response(p)?;
+        Ok(self.establish_initiator_session(session, dst))
+    }
+
+    /// Store a freshly established initiator-side session and answer with a
+    /// keepalive, which is what confirms the keys to the responder.
+    #[cfg(feature = "pq")]
+    fn establish_initiator_session<'a>(
+        &mut self,
+        session: session::Session,
+        dst: &'a mut [u8],
+    ) -> TunnResult<'a> {
+        let keepalive_packet = session.format_packet_data(&[], dst);
+        let l_idx = session.local_index();
+        let index = l_idx % N_SESSIONS;
+        self.sessions[index] = Some(session);
+
+        self.timer_tick(TimerName::TimeLastPacketReceived);
+        self.timer_tick_session_established(true, index);
+        self.set_current_session(l_idx);
+
+        tracing::debug!("Sending keepalive");
+
+        TunnResult::WriteToNetwork(keepalive_packet)
+    }
+
     /// Format the PQ handshake response for the current InitReceived state,
     /// segmenting it when our own `pq_path_mtu` requires it or the initiation
-    /// arrived segmented (stride mirroring).
+    /// arrived segmented (stride mirroring). Handles both the ephemeral-only
+    /// (type 6) and static-auth (type 9) responses.
     #[cfg(feature = "pq")]
     fn pq_send_handshake_response<'a>(
         &mut self,
         dst: &'a mut [u8],
     ) -> Result<TunnResult<'a>, WireGuardError> {
+        let pqs = self.handshake.pqs_response_pending();
+        let msg_sz = if pqs {
+            PQS_HANDSHAKE_RESP_SZ
+        } else {
+            PQ_HANDSHAKE_RESP_SZ
+        };
         let observed_stride = self.handshake.pq_observed_stride();
-        let (result, session) = match self.pq_stride_for(PQ_HANDSHAKE_RESP_SZ, observed_stride) {
+        let (result, session) = match self.pq_stride_for(msg_sz, observed_stride) {
             None => {
-                let (packet, session, _seg_tag_key, _hs_id) =
-                    self.handshake.format_pq_handshake_response(dst)?;
+                let (packet, session, _seg_tag_key, _hs_id) = if pqs {
+                    self.handshake.format_pqs_handshake_response(dst)?
+                } else {
+                    self.handshake.format_pq_handshake_response(dst)?
+                };
                 (TunnResult::WriteToNetwork(packet), session)
             }
             Some(stride) => {
-                let mut inner = [0u8; PQ_HANDSHAKE_RESP_SZ];
-                let (_, session, seg_tag_key, hs_id) =
-                    self.handshake.format_pq_handshake_response(&mut inner)?;
+                // Segment 0 must carry the whole response prefix; the shared
+                // 60-byte prefix means both modes have the same floor
+                if stride < PQS_RESP_PREFIX_SZ {
+                    return Err(WireGuardError::InvalidParameter);
+                }
+                let mut scratch = [0u8; PQS_HANDSHAKE_RESP_SZ];
+                let inner = &mut scratch[..msg_sz];
+                let (_, session, seg_tag_key, hs_id) = if pqs {
+                    self.handshake.format_pqs_handshake_response(inner)?
+                } else {
+                    self.handshake.format_pq_handshake_response(inner)?
+                };
                 let (count, seg_size, last_size) =
                     self.handshake
-                        .segment_pq_message(&inner, hs_id, stride, &seg_tag_key, dst)?;
+                        .segment_pq_message(inner, hs_id, stride, &seg_tag_key, dst)?;
                 let buf_len = seg_size * (count - 1) + last_size;
                 (
                     TunnResult::WriteManyToNetwork(SegmentedMsg {
@@ -693,18 +941,7 @@ impl Tunn {
             handshake::PqSegOutcome::Buffered => Ok(TunnResult::Done),
             handshake::PqSegOutcome::InitComplete => self.pq_send_handshake_response(dst),
             handshake::PqSegOutcome::RespComplete(session) => {
-                let keepalive_packet = session.format_packet_data(&[], dst);
-                let l_idx = session.local_index();
-                let index = l_idx % N_SESSIONS;
-                self.sessions[index] = Some(*session);
-
-                self.timer_tick(TimerName::TimeLastPacketReceived);
-                self.timer_tick_session_established(true, index);
-                self.set_current_session(l_idx);
-
-                tracing::debug!("Sending keepalive");
-
-                Ok(TunnResult::WriteToNetwork(keepalive_packet))
+                Ok(self.establish_initiator_session(*session, dst))
             }
         }
     }
@@ -722,19 +959,7 @@ impl Tunn {
         );
 
         let session = self.handshake.receive_pq_handshake_response(p)?;
-
-        let keepalive_packet = session.format_packet_data(&[], dst);
-        let l_idx = session.local_index();
-        let index = l_idx % N_SESSIONS;
-        self.sessions[index] = Some(session);
-
-        self.timer_tick(TimerName::TimeLastPacketReceived);
-        self.timer_tick_session_established(true, index);
-        self.set_current_session(l_idx);
-
-        tracing::debug!("Sending keepalive");
-
-        Ok(TunnResult::WriteToNetwork(keepalive_packet))
+        Ok(self.establish_initiator_session(session, dst))
     }
 
     /// Update the index of the currently used session, if needed
@@ -796,12 +1021,36 @@ impl Tunn {
 
         let starting_new_handshake = !self.handshake.is_in_progress();
 
-        // When the configured path MTU cannot carry the PQ init in one
+        // The initiation type is fixed by this peer's configuration: static
+        // auth (type 8) when an ML-KEM key pair is configured for it,
+        // ephemeral-only hybrid (type 5) otherwise.
+        #[cfg(feature = "pq")]
+        let pqs = self.handshake.pqs_enabled();
+        #[cfg(feature = "pq")]
+        let (msg_sz, prefix_sz) = if pqs {
+            (PQS_HANDSHAKE_INIT_SZ, PQS_INIT_PREFIX_SZ)
+        } else {
+            (PQ_HANDSHAKE_INIT_SZ, PQ_INIT_PREFIX_SZ)
+        };
+
+        // When the configured path MTU cannot carry the initiation in one
         // datagram, format it into a scratch buffer and emit type-7 segments
         #[cfg(feature = "pq")]
-        if let Some(stride) = self.pq_stride_for(PQ_HANDSHAKE_INIT_SZ, None) {
-            let mut inner = [0u8; PQ_HANDSHAKE_INIT_SZ];
-            if let Err(e) = self.handshake.format_pq_handshake_initiation(&mut inner) {
+        if let Some(stride) = self.pq_stride_for(msg_sz, None) {
+            // Segment 0 has to carry the whole authenticating prefix; if the
+            // configured MTU cannot fit it, refuse to send rather than emit a
+            // message the peer would have to buffer unauthenticated
+            if stride < prefix_sz {
+                return TunnResult::Err(WireGuardError::InvalidParameter);
+            }
+            let mut scratch = [0u8; PQS_HANDSHAKE_INIT_SZ];
+            let inner = &mut scratch[..msg_sz];
+            let formatted = if pqs {
+                self.handshake.format_pqs_handshake_initiation(inner)
+            } else {
+                self.handshake.format_pq_handshake_initiation(inner)
+            };
+            if let Err(e) = formatted {
                 return TunnResult::Err(e);
             }
             let (hs_id, seg_tag_key) = match self.handshake.current_init_seg_params() {
@@ -811,7 +1060,7 @@ impl Tunn {
             let (count, seg_size, last_size) =
                 match self
                     .handshake
-                    .segment_pq_message(&inner, hs_id, stride, &seg_tag_key, dst)
+                    .segment_pq_message(inner, hs_id, stride, &seg_tag_key, dst)
                 {
                     Ok(v) => v,
                     Err(e) => return TunnResult::Err(e),
@@ -836,7 +1085,11 @@ impl Tunn {
         }
 
         #[cfg(feature = "pq")]
-        let result = self.handshake.format_pq_handshake_initiation(dst);
+        let result = if pqs {
+            self.handshake.format_pqs_handshake_initiation(dst)
+        } else {
+            self.handshake.format_pq_handshake_initiation(dst)
+        };
         #[cfg(not(feature = "pq"))]
         let result = self.handshake.format_handshake_initiation(dst);
 
@@ -1011,7 +1264,7 @@ mod tests {
     }
 
     fn create_handshake_init(tun: &mut Tunn) -> Vec<u8> {
-        let mut dst = vec![0u8; 2048];
+        let mut dst = vec![0u8; 4096];
         let handshake_init = tun.format_handshake_initiation(&mut dst, false);
         assert!(matches!(handshake_init, TunnResult::WriteToNetwork(_)));
         let handshake_init = if let TunnResult::WriteToNetwork(sent) = handshake_init {
@@ -1024,7 +1277,7 @@ mod tests {
     }
 
     fn create_handshake_response(tun: &mut Tunn, handshake_init: &[u8]) -> Vec<u8> {
-        let mut dst = vec![0u8; 2048];
+        let mut dst = vec![0u8; 4096];
         let handshake_resp = tun.decapsulate(None, handshake_init, &mut dst);
         assert!(matches!(handshake_resp, TunnResult::WriteToNetwork(_)));
 
@@ -1038,7 +1291,7 @@ mod tests {
     }
 
     fn parse_handshake_resp(tun: &mut Tunn, handshake_resp: &[u8]) -> Vec<u8> {
-        let mut dst = vec![0u8; 2048];
+        let mut dst = vec![0u8; 4096];
         let keepalive = tun.decapsulate(None, handshake_resp, &mut dst);
         assert!(matches!(keepalive, TunnResult::WriteToNetwork(_)));
 
@@ -1052,7 +1305,7 @@ mod tests {
     }
 
     fn parse_keepalive(tun: &mut Tunn, keepalive: &[u8]) {
-        let mut dst = vec![0u8; 2048];
+        let mut dst = vec![0u8; 4096];
         let keepalive = tun.decapsulate(None, keepalive, &mut dst);
         assert!(matches!(keepalive, TunnResult::Done));
     }
@@ -2040,5 +2293,494 @@ mod tests {
             keepalive.extend(feed(&mut a, d));
         }
         assert_eq!(keepalive.len(), 1);
+    }
+
+    // ---- Static ML-KEM authentication (message types 8/9) ----
+
+    /// A pair of tunnels wired for static-KEM authentication, keeping the key
+    /// material around so tests can restamp MACs and drive the anon parsers
+    /// the way the device layer does.
+    #[cfg(feature = "pq")]
+    struct StaticAuthPair {
+        a: Tunn,
+        b: Tunn,
+        a_public: x25519_dalek::PublicKey,
+        b_public: x25519_dalek::PublicKey,
+        a_mlkem: std::sync::Arc<crate::noise::handshake::MlKemStaticSecret>,
+        b_mlkem: std::sync::Arc<crate::noise::handshake::MlKemStaticSecret>,
+    }
+
+    #[cfg(feature = "pq")]
+    fn random_mlkem_secret() -> crate::noise::handshake::MlKemStaticSecret {
+        let mut seed = [0u8; MLKEM768_SEED_SIZE];
+        OsRng.fill_bytes(&mut seed);
+        crate::noise::handshake::MlKemStaticSecret::from_seed(&seed)
+    }
+
+    #[cfg(feature = "pq")]
+    fn ek_of(
+        s: &crate::noise::handshake::MlKemStaticSecret,
+    ) -> crate::noise::handshake::MlKemPublicKey {
+        crate::noise::handshake::MlKemPublicKey::from_bytes(s.encapsulation_key_bytes()).unwrap()
+    }
+
+    #[cfg(feature = "pq")]
+    fn static_auth_pair(mtu_a: u16, mtu_b: u16) -> StaticAuthPair {
+        use std::sync::Arc;
+
+        let a_secret = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+        let a_public = x25519_dalek::PublicKey::from(&a_secret);
+        let b_secret = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+        let b_public = x25519_dalek::PublicKey::from(&b_secret);
+
+        let mut a = Tunn::new(a_secret, b_public, None, None, OsRng.next_u32(), None);
+        let mut b = Tunn::new(b_secret, a_public, None, None, OsRng.next_u32(), None);
+
+        let a_mlkem = Arc::new(random_mlkem_secret());
+        let b_mlkem = Arc::new(random_mlkem_secret());
+        a.set_pq_static_auth(Arc::clone(&a_mlkem), ek_of(&b_mlkem))
+            .unwrap();
+        b.set_pq_static_auth(Arc::clone(&b_mlkem), ek_of(&a_mlkem))
+            .unwrap();
+        a.set_pq_path_mtu(mtu_a).unwrap();
+        b.set_pq_path_mtu(mtu_b).unwrap();
+
+        StaticAuthPair {
+            a,
+            b,
+            a_public,
+            b_public,
+            a_mlkem,
+            b_mlkem,
+        }
+    }
+
+    /// Unsegmented static-auth handshake: sizes match the spec and both
+    /// message types parse.
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pqs_full_handshake() {
+        let mut p = static_auth_pair(0, 0);
+
+        let init = create_handshake_init(&mut p.a);
+        assert_eq!(init.len(), PQS_HANDSHAKE_INIT_SZ);
+        assert!(matches!(
+            Tunn::parse_incoming_packet(&init).unwrap(),
+            Packet::PqsHandshakeInit(_)
+        ));
+
+        let resp = create_handshake_response(&mut p.b, &init);
+        assert_eq!(resp.len(), PQS_HANDSHAKE_RESP_SZ);
+        assert!(matches!(
+            Tunn::parse_incoming_packet(&resp).unwrap(),
+            Packet::PqsHandshakeResponse(_)
+        ));
+
+        let keepalive = parse_handshake_resp(&mut p.a, &resp);
+        parse_keepalive(&mut p.b, &keepalive);
+    }
+
+    /// End-to-end data over a static-auth session, unsegmented and segmented,
+    /// with the MTU configured on one side or both
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pqs_full_exchange_all_mtus() {
+        for (mtu_a, mtu_b) in [
+            (0u16, 0u16),
+            (1280, 1280),
+            (1500, 1500),
+            (1280, 0),
+            (0, 1280),
+            (1500, 1280),
+        ] {
+            let mut p = static_auth_pair(mtu_a, mtu_b);
+            complete_handshake_and_data(&mut p.a, &mut p.b);
+        }
+    }
+
+    /// At the IPv6 minimum the init splits into 3 segments and segment 0 is
+    /// exactly 1232 bytes — the UDP payload limit — with the whole 1172-byte
+    /// authenticating prefix inside it. This is the arithmetic the whole
+    /// message layout was chosen for.
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pqs_segmented_at_1280_fits_exactly() {
+        let mut p = static_auth_pair(1280, 1280);
+        let init = initiation_datagrams(&mut p.a);
+        assert_eq!(init.len(), 3);
+        assert_eq!(init[0].len(), 1232);
+        assert_eq!(init[0].len() - PQ_SEG_OVERHEAD, PQS_INIT_PREFIX_SZ);
+        assert!(init.iter().all(|d| d.len() + 48 <= 1280));
+
+        assert!(feed(&mut p.b, &init[0]).is_empty());
+        assert!(feed(&mut p.b, &init[1]).is_empty());
+        let resp = feed(&mut p.b, &init[2]);
+        assert_eq!(resp.len(), 2, "response splits in two at 1280");
+        assert!(resp.iter().all(|d| d.len() + 48 <= 1280));
+
+        assert!(feed(&mut p.a, &resp[0]).is_empty());
+        let keepalive = feed(&mut p.a, &resp[1]);
+        assert_eq!(keepalive.len(), 1);
+        assert!(feed(&mut p.b, &keepalive[0]).is_empty());
+    }
+
+    /// At 1500 both directions fit in two segments
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pqs_segmented_at_1500() {
+        let mut p = static_auth_pair(1500, 1500);
+        let init = initiation_datagrams(&mut p.a);
+        assert_eq!(init.len(), 2);
+        assert!(init.iter().all(|d| d.len() + 48 <= 1500));
+        assert!(feed(&mut p.b, &init[0]).is_empty());
+        let resp = feed(&mut p.b, &init[1]);
+        assert_eq!(resp.len(), 2);
+        assert!(feed(&mut p.a, &resp[0]).is_empty());
+        assert_eq!(feed(&mut p.a, &resp[1]).len(), 1);
+    }
+
+    /// Segments arriving out of order still assemble
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pqs_segments_out_of_order() {
+        let mut p = static_auth_pair(1280, 1280);
+        let init = initiation_datagrams(&mut p.a);
+        assert_eq!(init.len(), 3);
+        assert!(feed(&mut p.b, &init[0]).is_empty());
+        assert!(feed(&mut p.b, &init[2]).is_empty());
+        assert!(!feed(&mut p.b, &init[1]).is_empty());
+    }
+
+    /// Duplicate segments are dropped; reassembly slots are write-once
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pqs_duplicate_segment_dropped() {
+        let mut p = static_auth_pair(1280, 1280);
+        let init = initiation_datagrams(&mut p.a);
+        assert!(feed(&mut p.b, &init[0]).is_empty());
+        assert!(feed(&mut p.b, &init[1]).is_empty());
+        feed_expect_drop(&mut p.b, &init[1]);
+        assert!(!feed(&mut p.b, &init[2]).is_empty());
+    }
+
+    /// Nothing is buffered before segment 0 authenticates: a segment with a
+    /// forged tag, and a segment arriving before segment 0, are both dropped
+    /// without leaving state behind. This is the property that keeps the
+    /// design free of an attacker-influenceable reassembly buffer.
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pqs_forged_segment_buffers_nothing() {
+        let mut p = static_auth_pair(1280, 1280);
+        let init = initiation_datagrams(&mut p.a);
+
+        // Segment 1 before segment 0
+        feed_expect_drop(&mut p.b, &init[1]);
+
+        // Segment 0 with a corrupted tag, mac1 restamped the way an
+        // observe-and-inject attacker can
+        let mut forged = init[0].clone();
+        forged[PQ_SEG_HDR_SZ] ^= 0xff;
+        restamp_mac1(&mut forged, &p.b_public);
+        feed_expect_drop(&mut p.b, &forged);
+
+        // The genuine exchange still works afterwards, so no state was left
+        assert!(feed(&mut p.b, &init[0]).is_empty());
+        assert!(feed(&mut p.b, &init[1]).is_empty());
+        assert!(!feed(&mut p.b, &init[2]).is_empty());
+    }
+
+    /// Mutual authentication: a mismatched long-term ML-KEM key fails in
+    /// either direction.
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pqs_wrong_peer_key_rejected() {
+        use std::sync::Arc;
+
+        // The responder holds the wrong encapsulation key for the initiator,
+        // so its transcript diverges at the identity-binding hash
+        let mut p = static_auth_pair(0, 0);
+        p.b.set_pq_static_auth(Arc::clone(&p.b_mlkem), ek_of(&random_mlkem_secret()))
+            .unwrap();
+        let init = create_handshake_init(&mut p.a);
+        feed_expect_drop(&mut p.b, &init);
+
+        // The initiator encapsulates to the wrong responder key, so the
+        // responder cannot recover the identity at all
+        let mut p = static_auth_pair(0, 0);
+        p.a.set_pq_static_auth(Arc::clone(&p.a_mlkem), ek_of(&random_mlkem_secret()))
+            .unwrap();
+        let init = create_handshake_init(&mut p.a);
+        feed_expect_drop(&mut p.b, &init);
+    }
+
+    /// Tampering with either response ciphertext desynchronises the chain and
+    /// fails key confirmation. ML-KEM uses implicit rejection, so a corrupted
+    /// ciphertext yields a *different* shared secret rather than an error.
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pqs_tampered_response_ciphertexts_rejected() {
+        for offset in [PQS_RESP_CT_E_OFF + 50, PQS_RESP_CT_S_OFF + 50] {
+            let mut p = static_auth_pair(0, 0);
+            let init = create_handshake_init(&mut p.a);
+            let mut resp = create_handshake_response(&mut p.b, &init);
+            resp[offset] ^= 0xff;
+            feed_expect_drop(&mut p.a, &resp);
+        }
+    }
+
+    /// KEM binding: a static-KEM ciphertext lifted from a concurrent
+    /// handshake is rejected. Both encapsulation keys and every ciphertext go
+    /// into the transcript, so a ciphertext cannot be moved between sessions
+    /// even though ML-KEM itself is not MAL-BIND-K-PK.
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pqs_ciphertext_swap_between_handshakes_rejected() {
+        let mut p = static_auth_pair(0, 0);
+        let mut other = static_auth_pair(0, 0);
+
+        let mut init = create_handshake_init(&mut p.a);
+        let donor = create_handshake_init(&mut other.a);
+        let ct = PQS_INIT_CT_S_OFF..PQS_INIT_ENC_STATIC_OFF;
+        init[ct.clone()].copy_from_slice(&donor[ct]);
+        restamp_mac1(&mut init, &p.b_public);
+        feed_expect_drop(&mut p.b, &init);
+    }
+
+    /// Identity hiding: the identity field is unrecoverable without the
+    /// responder's ML-KEM decapsulation key, and differs across handshakes to
+    /// the same peer.
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pqs_identity_hidden_without_decapsulation_key() {
+        use crate::noise::handshake::parse_pqs_handshake_anon;
+
+        let mut p = static_auth_pair(0, 0);
+        let first = create_handshake_init(&mut p.a);
+        let second = {
+            let mut dst = vec![0u8; 4096];
+            match p.a.format_handshake_initiation(&mut dst, true) {
+                TunnResult::WriteToNetwork(sent) => sent.to_vec(),
+                other => panic!("unexpected {:?}", other),
+            }
+        };
+
+        let ident = PQS_INIT_ENC_STATIC_OFF..PQS_INIT_ENC_TIMESTAMP_OFF;
+        assert_ne!(first[ident.clone()], second[ident]);
+
+        let parsed = match Tunn::parse_incoming_packet(&first).unwrap() {
+            Packet::PqsHandshakeInit(pkt) => pkt,
+            other => panic!("unexpected {:?}", other),
+        };
+        let hh = parse_pqs_handshake_anon(&p.b_mlkem, &p.b_public, &parsed)
+            .expect("the responder recovers the initiator's identity");
+        assert_eq!(hh.peer_static_public, *p.a_public.as_bytes());
+
+        // An eavesdropper with the responder's X25519 key but not its ML-KEM
+        // key learns nothing: identity confidentiality rests on ML-KEM alone
+        assert!(parse_pqs_handshake_anon(&random_mlkem_secret(), &p.b_public, &parsed).is_err());
+    }
+
+    /// Device-level routing of a segmented static-auth initiation: segment 0
+    /// resolves the peer, later segments do not.
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pqs_segment0_peer_lookup() {
+        use crate::noise::handshake::parse_pqs_segment0_anon;
+
+        let mut p = static_auth_pair(1280, 1280);
+
+        fn chunk_of(dgram: &[u8]) -> &[u8] {
+            &dgram[PQ_SEG_CHUNK_OFF..dgram.len() - PQ_SEG_MACS_SZ]
+        }
+
+        let init = initiation_datagrams(&mut p.a);
+        assert_eq!(init.len(), 3);
+        let hh = parse_pqs_segment0_anon(&p.b_mlkem, &p.b_public, chunk_of(&init[0]))
+            .expect("segment 0 resolves the initiator");
+        assert_eq!(hh.peer_static_public, *p.a_public.as_bytes());
+        for seg in &init[1..] {
+            assert!(parse_pqs_segment0_anon(&p.b_mlkem, &p.b_public, chunk_of(seg)).is_err());
+        }
+
+        // Response-direction segment 0 carries no identity field either
+        let mut resp = vec![];
+        for d in &init {
+            resp.extend(feed(&mut p.b, d));
+        }
+        for seg in &resp {
+            assert!(parse_pqs_segment0_anon(&p.b_mlkem, &p.b_public, chunk_of(seg)).is_err());
+        }
+    }
+
+    /// No downgrade: a static-auth peer accepts nothing but types 8/9, and a
+    /// peer without static auth accepts nothing that claims to be. Without
+    /// this, an attacker who breaks X25519 could just send a type-1
+    /// initiation and skip the post-quantum layer entirely.
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pqs_downgrade_rejected_in_both_directions() {
+        let mut p = static_auth_pair(0, 0);
+        let mut dst = vec![0u8; 4096];
+
+        // Types 1 and 2, well-formed enough to parse
+        for (msg_type, size) in [
+            (HANDSHAKE_INIT, HANDSHAKE_INIT_SZ),
+            (HANDSHAKE_RESP, HANDSHAKE_RESP_SZ),
+            (PQ_HANDSHAKE_INIT, PQ_HANDSHAKE_INIT_SZ),
+            (PQ_HANDSHAKE_RESP, PQ_HANDSHAKE_RESP_SZ),
+        ] {
+            let mut buf = vec![0u8; size];
+            buf[0..4].copy_from_slice(&msg_type.to_le_bytes());
+            let parsed = Tunn::parse_incoming_packet(&buf).unwrap();
+            match p.b.handle_verified_packet(parsed, &mut dst) {
+                TunnResult::Err(WireGuardError::WrongPacketType) => {}
+                other => panic!("type {} must be rejected, got {:?}", msg_type, other),
+            }
+        }
+
+        // ...and the converse: a type-8 initiation toward a peer that is not
+        // configured for static auth
+        let pqs_init = create_handshake_init(&mut p.a);
+        let (_, mut plain) = create_two_tuns();
+        match plain.handle_verified_packet(
+            Tunn::parse_incoming_packet(&pqs_init).unwrap(),
+            &mut dst,
+        ) {
+            TunnResult::Err(WireGuardError::WrongPacketType) => {}
+            other => panic!("type 8 must be rejected by a phase-1 peer, got {:?}", other),
+        }
+    }
+
+    /// The response type is guarded by the state machine rather than by a
+    /// downstream AEAD failure: a phase-1 response cannot complete a
+    /// static-auth initiation.
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pqs_wrong_response_type_rejected() {
+        let mut p = static_auth_pair(0, 0);
+        let _ = create_handshake_init(&mut p.a);
+
+        // A genuine type-6 response from an unrelated exchange
+        let (mut plain_a, mut plain_b) = create_two_tuns();
+        let init = create_handshake_init(&mut plain_a);
+        let pq_resp = create_handshake_response(&mut plain_b, &init);
+        feed_expect_drop(&mut p.a, &pq_resp);
+
+        // The static-auth exchange still completes normally afterwards
+        // (force_resend, since the first initiation is still outstanding)
+        let init = initiation_datagrams(&mut p.a).remove(0);
+        let resp = create_handshake_response(&mut p.b, &init);
+        let keepalive = parse_handshake_resp(&mut p.a, &resp);
+        parse_keepalive(&mut p.b, &keepalive);
+    }
+
+    /// Config validation: static auth requires a path MTU of at least 1280,
+    /// in whichever order the two are configured.
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pqs_path_mtu_floor_enforced() {
+        use std::sync::Arc;
+
+        let own = Arc::new(random_mlkem_secret());
+        let peer = ek_of(&random_mlkem_secret());
+
+        // MTU first, then the key
+        let (mut a, _) = create_two_tuns();
+        a.set_pq_path_mtu(576).unwrap();
+        assert!(a.set_pq_static_auth(Arc::clone(&own), peer.clone()).is_err());
+        assert!(!a.pq_static_auth_enabled());
+
+        // Key first, then the MTU
+        let (mut b, _) = create_two_tuns();
+        b.set_pq_static_auth(Arc::clone(&own), peer).unwrap();
+        assert!(b.pq_static_auth_enabled());
+        assert!(b.set_pq_path_mtu(576).is_err());
+        assert!(b.set_pq_path_mtu(1279).is_err());
+        assert!(b.set_pq_path_mtu(1280).is_ok());
+        // 0 keeps its meaning: never segment
+        assert!(b.set_pq_path_mtu(0).is_ok());
+    }
+
+    /// Replay protection is unchanged: a repeated initiation is rejected on
+    /// its timestamp.
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pqs_replayed_initiation_rejected() {
+        let mut p = static_auth_pair(0, 0);
+        let init = create_handshake_init(&mut p.a);
+        assert!(!feed(&mut p.b, &init).is_empty());
+        feed_expect_drop(&mut p.b, &init);
+    }
+
+    /// A truncated type-8 message retyped as a phase-1 or classical one must
+    /// not decrypt: the three chains are domain-separated by construction
+    /// constant, and the sizes do not line up either.
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pqs_truncate_retype_rejected() {
+        let mut p = static_auth_pair(0, 0);
+        let init = create_handshake_init(&mut p.a);
+
+        let mut truncated = init[..PQ_HANDSHAKE_INIT_SZ].to_vec();
+        truncated[0..4].copy_from_slice(&PQ_HANDSHAKE_INIT.to_le_bytes());
+        restamp_mac1(&mut truncated, &p.b_public);
+        feed_expect_drop(&mut p.b, &truncated);
+
+        // ...and the genuine message still works, so nothing was consumed
+        assert!(!feed(&mut p.b, &init).is_empty());
+    }
+
+    /// Types 8 and 9 are behind the same mac1 gate as every other handshake
+    /// message. Without this the new types would be a cheaper way in than the
+    /// ones they replace, which would be a DoS regression against vanilla
+    /// WireGuard rather than the parity the design claims.
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pqs_messages_are_mac1_gated() {
+        use crate::noise::rate_limiter::RateLimiter;
+
+        let mut p = static_auth_pair(0, 0);
+        let mut cookie = vec![0u8; 4096];
+
+        let init = create_handshake_init(&mut p.a);
+        let resp = create_handshake_response(&mut p.b, &init);
+
+        for (label, msg, receiver) in [
+            ("type 8", init, p.b_public),
+            ("type 9", resp, p.a_public),
+        ] {
+            let limiter = RateLimiter::new(&receiver, 100);
+            // The genuine message passes
+            assert!(
+                limiter.verify_packet(None, &msg, &mut cookie).is_ok(),
+                "{} with a valid mac1 must pass",
+                label
+            );
+            // ...and one whose mac1 is wrong does not
+            let mut forged = msg.clone();
+            let mac1_off = forged.len() - 32;
+            forged[mac1_off] ^= 0xff;
+            match limiter.verify_packet(None, &forged, &mut cookie) {
+                Err(TunnResult::Err(WireGuardError::InvalidMac)) => {}
+                other => panic!("{} with a bad mac1 must be rejected, got {:?}", label, other),
+            }
+        }
+    }
+
+    /// A static-auth peer never emits phase-1 or classical messages
+    #[test]
+    #[cfg(feature = "pq")]
+    fn pqs_peer_only_emits_type_8() {
+        for mtu in [0u16, 1280, 1500] {
+            let mut p = static_auth_pair(mtu, mtu);
+            for dgram in initiation_datagrams(&mut p.a) {
+                let msg_type = u32::from_le_bytes(dgram[0..4].try_into().unwrap());
+                assert!(
+                    msg_type == PQS_HANDSHAKE_INIT || msg_type == PQ_SEGMENT,
+                    "unexpected outbound type {}",
+                    msg_type
+                );
+            }
+        }
     }
 }

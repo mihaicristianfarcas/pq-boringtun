@@ -1,0 +1,32 @@
+# preauth_benches, --features pq, 2026-07-29T05:58:58Z
+# macOS 26.5.2
+# Apple M4 Pro
+
+...
+    Finished `bench` profile [optimized] target(s) in 0.19s
+     Running benches/preauth_benches/main.rs (target/release/deps/preauth_benches-ed024d3e15a4c7a4)
+Gnuplot not found, using plotters backend
+Benchmarking preauth/hybrid_ephemeral_type5
+Benchmarking preauth/hybrid_ephemeral_type5: Warming up for 3.0000 s
+Benchmarking preauth/hybrid_ephemeral_type5: Collecting 500 samples in estimated 5.4768 s (250k iterations)
+Benchmarking preauth/hybrid_ephemeral_type5: Analyzing
+preauth/hybrid_ephemeral_type5
+                        time:   [21.843 µs 21.874 µs 21.904 µs]
+                        change: [+1.7066% +1.9224% +2.1663%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 30 outliers among 500 measurements (6.00%)
+  13 (2.60%) low mild
+  8 (1.60%) high mild
+  9 (1.80%) high severe
+Benchmarking preauth/static_auth_type8
+Benchmarking preauth/static_auth_type8: Warming up for 3.0000 s
+Benchmarking preauth/static_auth_type8: Collecting 500 samples in estimated 7.9405 s (250k iterations)
+Benchmarking preauth/static_auth_type8: Analyzing
+preauth/static_auth_type8
+                        time:   [31.725 µs 31.762 µs 31.799 µs]
+                        change: [+0.5774% +0.9178% +1.1969%] (p = 0.00 < 0.05)
+                        Change within noise threshold.
+Found 13 outliers among 500 measurements (2.60%)
+  10 (2.00%) low mild
+  2 (0.40%) high mild
+  1 (0.20%) high severe

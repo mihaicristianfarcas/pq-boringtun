@@ -38,7 +38,10 @@ use std::thread::JoinHandle;
 use crate::noise::errors::WireGuardError;
 use crate::noise::handshake::parse_handshake_anon;
 #[cfg(feature = "pq")]
-use crate::noise::handshake::{parse_pq_handshake_anon, parse_pq_segment0_anon};
+use crate::noise::handshake::{
+    parse_pq_handshake_anon, parse_pq_segment0_anon, parse_pqs_handshake_anon,
+    parse_pqs_segment0_anon, MlKemPublicKey, MlKemStaticSecret,
+};
 use crate::noise::rate_limiter::RateLimiter;
 use crate::noise::{Packet, Tunn, TunnResult};
 use crate::x25519;
@@ -168,6 +171,13 @@ pub struct Device {
     /// Device-level path MTU for PQ handshake segmentation (0 = disabled)
     #[cfg(feature = "pq")]
     pq_path_mtu: u16,
+
+    /// The device's long-term ML-KEM-768 keypair, used for static-KEM
+    /// authentication. Independent key material — deriving it from the
+    /// X25519 private key would let an attacker who breaks X25519 derive it
+    /// too, voiding the property it exists to provide.
+    #[cfg(feature = "pq")]
+    mlkem_key: Option<Arc<MlKemStaticSecret>>,
 
     /// Routes init-direction segments 1..n to their peer. Keyed by the full
     /// source socket address plus hs_id because hs_id is chosen by the remote
@@ -330,6 +340,7 @@ impl Device {
         allowed_ips: &[AllowedIP],
         keepalive: Option<u16>,
         preshared_key: Option<[u8; 32]>,
+        #[cfg(feature = "pq")] mlkem_public_key: Option<MlKemPublicKey>,
     ) {
         if remove {
             // Completely remove a peer
@@ -360,8 +371,25 @@ impl Device {
         #[cfg(feature = "pq")]
         let tunn = {
             let mut tunn = tunn;
-            // Value validated at the config entry points; 0 is a no-op
+            let wants_static_auth = mlkem_public_key.is_some();
+            // The static-auth key goes in first so the MTU check that follows
+            // sees the right floor
+            if let (Some(peer_ek), Some(own)) = (mlkem_public_key, self.mlkem_key.as_ref()) {
+                let _ = tunn.set_pq_static_auth(Arc::clone(own), peer_ek);
+            }
             let _ = tunn.set_pq_path_mtu(self.pq_path_mtu);
+            // Refuse rather than silently fall back to the weaker mode: a peer
+            // asked for static auth and did not get it is a downgrade, which
+            // is precisely what this cycle exists to prevent.
+            if wants_static_auth && !tunn.pq_static_auth_enabled() {
+                tracing::error!(
+                    "Peer requested static ML-KEM authentication but it could not be \
+                     configured (device ML-KEM key missing, or pq_path_mtu below {}); \
+                     peer not added",
+                    crate::noise::PQS_MIN_PATH_MTU
+                );
+                return;
+            }
             tunn
         };
 
@@ -413,6 +441,8 @@ impl Device {
             uapi_fd,
             #[cfg(feature = "pq")]
             pq_path_mtu: config.pq_path_mtu,
+            #[cfg(feature = "pq")]
+            mlkem_key: None,
             #[cfg(feature = "pq")]
             pq_seg_routing: Mutex::new(HashMap::new()),
         };
@@ -544,13 +574,39 @@ impl Device {
         self.pq_path_mtu
     }
 
-    /// Set the device-level PQ path MTU and propagate it to all peers
+    /// Set the device-level PQ path MTU and propagate it to all peers.
+    /// Rejected when a static-auth peer already exists and the new value
+    /// cannot carry that mode's authenticating prefix in segment 0.
     #[cfg(feature = "pq")]
-    pub(crate) fn set_pq_path_mtu(&mut self, mtu: u16) {
+    pub(crate) fn set_pq_path_mtu(&mut self, mtu: u16) -> Result<(), WireGuardError> {
+        if mtu != 0 && mtu < crate::noise::PQS_MIN_PATH_MTU {
+            let has_static_auth = self
+                .peers
+                .values()
+                .any(|p| p.lock().tunnel.pq_static_auth_enabled());
+            if has_static_auth {
+                return Err(WireGuardError::InvalidParameter);
+            }
+        }
         self.pq_path_mtu = mtu;
         for peer in self.peers.values() {
             let _ = peer.lock().tunnel.set_pq_path_mtu(mtu);
         }
+        Ok(())
+    }
+
+    /// The device's ML-KEM-768 keypair, if one has been configured
+    #[cfg(feature = "pq")]
+    pub(crate) fn mlkem_key(&self) -> Option<&Arc<MlKemStaticSecret>> {
+        self.mlkem_key.as_ref()
+    }
+
+    /// Install the device's long-term ML-KEM-768 keypair from its 64-byte
+    /// seed. Like `private_key`, it must be set before the peers that use it;
+    /// peers capture the keypair at the point they are added.
+    #[cfg(feature = "pq")]
+    pub(crate) fn set_mlkem_key(&mut self, seed: &[u8; crate::noise::MLKEM768_SEED_SIZE]) {
+        self.mlkem_key = Some(Arc::new(MlKemStaticSecret::from_seed(seed)));
     }
 
     fn register_notifiers(&mut self) -> Result<(), Error> {
@@ -721,20 +777,56 @@ impl Device {
                                 .cloned()
                         }
                         #[cfg(feature = "pq")]
+                        Packet::PqHandshakeResponse(p) => {
+                            d.peers_by_idx.get(&(p.receiver_idx >> 8)).cloned()
+                        }
+                        // A type-8 initiation seals the identity under the
+                        // static-KEM secret, so routing it needs the device's
+                        // decapsulation key. Without one it is undeliverable,
+                        // which is exactly the intended drop.
+                        #[cfg(feature = "pq")]
+                        Packet::PqsHandshakeInit(ref p) => d.mlkem_key.as_ref().and_then(|own| {
+                            parse_pqs_handshake_anon(own, public_key, p)
+                                .ok()
+                                .and_then(|hh| {
+                                    d.peers.get(&x25519::PublicKey::from(hh.peer_static_public))
+                                })
+                                .cloned()
+                        }),
+                        #[cfg(feature = "pq")]
+                        Packet::PqsHandshakeResponse(p) => {
+                            d.peers_by_idx.get(&(p.receiver_idx >> 8)).cloned()
+                        }
+                        #[cfg(feature = "pq")]
                         Packet::PqSegment(p) => {
                             if p.seg_idx == 0 {
                                 // Init direction: the chunk starts with the
-                                // inner init's classical prefix; response
-                                // direction: fall back to the receiver-index
-                                // path
-                                match parse_pq_segment0_anon(private_key, public_key, p.chunk) {
-                                    Ok(hh) => {
-                                        pq_init_seg0 = true;
-                                        d.peers
-                                            .get(&x25519::PublicKey::from(hh.peer_static_public))
-                                            .cloned()
+                                // inner init's authenticating prefix, in
+                                // whichever of the two forms this device
+                                // understands; response direction: fall back
+                                // to the receiver-index path
+                                let pqs_peer = d.mlkem_key.as_ref().and_then(|own| {
+                                    parse_pqs_segment0_anon(own, public_key, p.chunk)
+                                        .ok()
+                                        .and_then(|hh| {
+                                            d.peers
+                                                .get(&x25519::PublicKey::from(hh.peer_static_public))
+                                        })
+                                        .cloned()
+                                });
+                                if let Some(peer) = pqs_peer {
+                                    pq_init_seg0 = true;
+                                    Some(peer)
+                                } else {
+                                    match parse_pq_segment0_anon(private_key, public_key, p.chunk) {
+                                        Ok(hh) => {
+                                            pq_init_seg0 = true;
+                                            d.peers
+                                                .get(&x25519::PublicKey::from(hh.peer_static_public))
+                                                .cloned()
+                                        }
+                                        Err(_) => d.peers_by_idx.get(&(p.hs_id >> 8)).cloned(),
                                     }
-                                    Err(_) => d.peers_by_idx.get(&(p.hs_id >> 8)).cloned(),
                                 }
                             } else {
                                 let routed = d
@@ -744,10 +836,6 @@ impl Device {
                                     .map(|(peer, _)| Arc::clone(peer));
                                 routed.or_else(|| d.peers_by_idx.get(&(p.hs_id >> 8)).cloned())
                             }
-                        }
-                        #[cfg(feature = "pq")]
-                        Packet::PqHandshakeResponse(p) => {
-                            d.peers_by_idx.get(&(p.receiver_idx >> 8)).cloned()
                         }
                         Packet::HandshakeResponse(p) => {
                             d.peers_by_idx.get(&(p.receiver_idx >> 8)).cloned()

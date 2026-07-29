@@ -12,9 +12,11 @@ use rand_core::UnwrapErr;
 #[derive(Parser)]
 #[command(
     name = "pq-psk-tool",
-    about = "ML-KEM-768 key exchange tool for WireGuard PSK-slot post-quantum protection.\n\n\
-             Generates a shared 32-byte secret via ML-KEM-768 that can be used as a \
-             WireGuard preshared key (PSK) for post-quantum protection."
+    about = "ML-KEM-768 key tool for post-quantum WireGuard.\n\n\
+             `keygen`/`encaps`/`decaps` run an out-of-band key exchange producing a \
+             32-byte WireGuard preshared key (the PSK-slot approach).\n\
+             `static-keygen` produces a long-term ML-KEM-768 identity keypair for the \
+             in-protocol static-KEM authentication mode (handshake types 8/9)."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -65,6 +67,33 @@ enum Command {
         #[arg(short = 'p', long, default_value = "psk.b64")]
         psk_out: PathBuf,
     },
+
+    /// Generate a long-term ML-KEM-768 identity keypair for static-KEM
+    /// authentication, and print paste-ready UAPI configuration lines.
+    ///
+    /// This key must be independent of the X25519 private key: an attacker who
+    /// breaks X25519 must not thereby be able to derive it.
+    StaticKeygen {
+        /// Output path for the 64-byte seed, hex-encoded (secret, keep local)
+        #[arg(short = 's', long, default_value = "mlkem_static_seed.hex")]
+        seed_out: PathBuf,
+
+        /// Output path for the 1184-byte encapsulation key, hex-encoded
+        /// (public, give to every peer)
+        #[arg(short = 'e', long, default_value = "mlkem_static_ek.hex")]
+        ek_out: PathBuf,
+    },
+}
+
+fn write_hex_file(path: &PathBuf, data: &[u8]) {
+    let encoded = hex_encode(data);
+    fs::write(path, &encoded)
+        .unwrap_or_else(|e| panic!("Failed to write {}: {}", path.display(), e));
+    eprintln!("Wrote {} bytes (hex) to {}", data.len(), path.display());
+}
+
+fn hex_encode(data: &[u8]) -> String {
+    data.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
 fn read_base64_file(path: &PathBuf) -> Vec<u8> {
@@ -178,6 +207,47 @@ fn main() {
             write_psk_base64(&psk_out, shared_secret.as_slice());
 
             eprintln!("\nDecapsulation complete. PSK matches the encapsulator's PSK.");
+        }
+
+        Command::StaticKeygen { seed_out, ek_out } => {
+            let (dk, ek): (DecapsulationKey768, EncapsulationKey768) =
+                MlKem768::generate_keypair_from_rng(&mut UnwrapErr(getrandom::SysRng));
+
+            let seed = dk
+                .to_seed()
+                .expect("keypair generated from an RNG always has a seed");
+            let ek_bytes = ek.to_bytes();
+
+            // The device is configured with the seed and peers with the
+            // encapsulation key, so the two files must describe one keypair.
+            // A mismatch would only surface as handshakes that never complete,
+            // so check it here rather than in the field.
+            let reconstructed = DecapsulationKey768::from_seed(seed);
+            assert_eq!(
+                reconstructed.encapsulation_key().to_bytes().as_slice(),
+                ek_bytes.as_slice(),
+                "seed does not reconstruct the encapsulation key it was written with"
+            );
+
+            write_hex_file(&seed_out, seed.as_slice());
+            write_hex_file(&ek_out, ek_bytes.as_slice());
+
+            // The stock `wg` CLI drops fields it does not know, so these go
+            // straight into the UAPI socket instead.
+            eprintln!("\nUAPI configuration:");
+            eprintln!("\n  On this device (before adding any peer):");
+            eprintln!("    mlkem_private_key={}", hex_encode(seed.as_slice()));
+            eprintln!("\n  On each peer, inside that peer's section:");
+            eprintln!("    mlkem_public_key={}", hex_encode(ek_bytes.as_slice()));
+            eprintln!(
+                "\nKeep {} secret; {} is public.",
+                seed_out.display(),
+                ek_out.display()
+            );
+            eprintln!(
+                "Both ends must be configured; a peer with mlkem_public_key set \n\
+                 speaks handshake types 8/9 only, and requires a path MTU of at least 1280."
+            );
         }
     }
 }
